@@ -1,18 +1,42 @@
-#!/bin/bash
+#!/usr/bin/perl
 
-DIR=/data2/extract
-HOSTS=$*
-test -z "$HOSTS" && HOSTS=$ALL
-FILELIST=/var/cache/rpm-find-changes/etc.txt
+use strict;
+use Getopt::Std;
+use Config::Tiny;
+use FindBin;
+use File::Spec;
+use File::Basename;
+use File::Path;
+use File::Rsync;
 
-die() {
-  echo $*
-  exit 1
+my %opts = ();
+getopts('h?nv', \%opts);
+my $help = $opts{h} || $opts{'?'};
+my $noop = $opts{n};
+my $verbose = $opts{v};
+
+my $config = Config::Tiny->read('/etc/extract.conf');
+$config ||= Config::Tiny->read(File::Spec->catfile( $FindBin::RealBin, File::Spec->updir, 'etc', 'extract.conf' ));
+die "Cannot find extract.conf config file\n" unless $config;
+
+my @hosts = $config->{_}->{hosts} ? split /\s*,\s*/, $config->{_}->{hosts} : @ARGV;
+die "usage: " . basename($FindBin::RealScript) . " [-v] <host1> [<host2> ...]\n" 
+  if $help || ! @hosts;
+
+my $root = $config->{_}->{root} or die "Cannot find required 'root' property in extract.conf\n";
+my $files = $config->{_}->{files} or die "Cannot find required 'files' property in extract.conf\n";
+-d $root or die "Extract root '$root' does not exist or is not a directory\n";
+-w $root or die "Extract root '$root' is not writeable\n";
+
+chdir $root or die "Cannot chdir to extract root '$root': $!\n";
+
+my %extra = ( $verbose ? (verbose => 1) : (quiet => 1) );
+$extra{'dry-run'} = 1 if $noop;
+my $rsync = File::Rsync->new( { archive => 1, 'copy-unsafe-links' => 1, 'files-from' => ":$files", %extra })
+  or die "rsync construction failed: $!\n";
+for my $host (@hosts) {
+  die "Cannot mkdir $host: $!\n" unless -d $host or mkdir $host;
+  $rsync->exec({ src => "$host:/", dest => $host }) 
+    or die "rsync exec failed: $!\n";
 }
-
-for h in $HOSTS; do
-  echo $h
-  mkdir -p $DIR/$h
-  rsync -a --quiet --files-from=:$FILELIST $h:/ $DIR/$h
-done
 
