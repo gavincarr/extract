@@ -15,14 +15,17 @@ my $help = $opts{h} || $opts{'?'};
 my $noop = $opts{n};
 my $verbose = $opts{v};
 
+# Read config file
 my $config = Config::Tiny->read('/etc/extract.conf');
 $config ||= Config::Tiny->read(File::Spec->catfile( $FindBin::RealBin, File::Spec->updir, 'etc', 'extract.conf' ));
 die "Cannot find extract.conf config file\n" unless $config;
 
+# Check we have hosts to extract from
 my @hosts = $config->{_}->{hosts} ? split /\s*,\s*/, $config->{_}->{hosts} : @ARGV;
 die "usage: " . basename($FindBin::RealScript) . " [-v] <host1> [<host2> ...]\n" 
   if $help || ! @hosts;
 
+# Check we have other required settings
 my $root = $config->{_}->{root} or die "Cannot find required 'root' property in extract.conf\n";
 my $files = $config->{_}->{files} or die "Cannot find required 'files' property in extract.conf\n";
 -d $root or die "Extract root '$root' does not exist or is not a directory\n";
@@ -30,13 +33,44 @@ my $files = $config->{_}->{files} or die "Cannot find required 'files' property 
 
 chdir $root or die "Cannot chdir to extract root '$root': $!\n";
 
+# Iterate over hosts, doing extracts
 my %extra = ( $verbose ? (verbose => 1) : (quiet => 1) );
 $extra{'dry-run'} = 1 if $noop;
-my $rsync = File::Rsync->new( { archive => 1, 'copy-unsafe-links' => 1, 'files-from' => ":$files", %extra })
+my $rsync = File::Rsync->new( { archive => 1, 'copy-links' => 1, 'files-from' => ":$files", %extra })
   or die "rsync construction failed: $!\n";
 for my $host (@hosts) {
   die "Cannot mkdir $host: $!\n" unless -d $host or mkdir $host;
-  $rsync->exec({ src => "$host:/", dest => $host }) 
-    or die "rsync exec failed: $!\n";
+  print "+ extracting from $host ...\n" if $verbose;
+
+  # Timeout protection
+  eval {
+    local $SIG{ALRM} = sub { die "Timeout!" };
+    alarm 20;
+    $rsync->exec({ src => "$host:/", dest => $host }) 
+      or die "rsync exec failed: $!\n";
+  };
+  alarm 0;
+  if ($@) {
+    if ($@ =~ qr/^Timeout!/) {
+      print "\n** Timeout! **\n\n";
+      next;
+    }
+    else {
+      # Reraise exception
+      die $@;
+    }
+  }
+
+  # Process errors and output
+  if (my $err = $rsync->err) {
+    print join('', @$err);
+  }
+  if ($verbose) {
+    print "+ cmd: " . $rsync->lastcmd . "\n";
+    if (my $out = $rsync->out) {
+      print join('', @$out);
+    }
+    print "\n";
+  }
 }
 
