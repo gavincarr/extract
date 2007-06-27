@@ -10,9 +10,10 @@ use File::Path;
 use File::Rsync;
 
 my %opts = ();
-getopts('h?nv', \%opts);
+getopts('h?nt:v', \%opts);
 my $help = $opts{h} || $opts{'?'};
 my $noop = $opts{n};
+my $timeout = $opts{t} || 30;
 my $verbose = $opts{v};
 
 # Read config file
@@ -22,7 +23,7 @@ die "Cannot find extract.conf config file\n" unless $config;
 
 # Check we have hosts to extract from
 my @hosts = $config->{_}->{hosts} ? split /\s*,\s*/, $config->{_}->{hosts} : @ARGV;
-die "usage: " . basename($FindBin::RealScript) . " [-v] <host1> [<host2> ...]\n" 
+die "usage: " . basename($FindBin::RealScript) . " [-v] [-n] [-t <timeout_sec>] <host1> [<host2> ...]\n" 
   if $help || ! @hosts;
 
 # Check we have other required settings
@@ -30,6 +31,10 @@ my $root = $config->{_}->{root} or die "Cannot find required 'root' property in 
 my $files = $config->{_}->{files} or die "Cannot find required 'files' property in extract.conf\n";
 -d $root or die "Extract root '$root' does not exist or is not a directory\n";
 -w $root or die "Extract root '$root' is not writeable\n";
+my @post_extract_host = ();
+if ($config->{_}->{post_extract_host}) {
+  @post_extract_host = split /\s*,\s*/, $config->{_}->{post_extract_host};
+}
 
 chdir $root or die "Cannot chdir to extract root '$root': $!\n";
 
@@ -45,7 +50,7 @@ for my $host (@hosts) {
   # Timeout protection
   eval {
     local $SIG{ALRM} = sub { die "Timeout!" };
-    alarm 20;
+    alarm $timeout;
     $rsync->exec({ src => "$host:/", dest => $host }) 
       or die "rsync exec failed: $!\n";
   };
@@ -71,6 +76,13 @@ for my $host (@hosts) {
       print join('', @$out);
     }
     print "\n";
+  }
+
+  # Post-extract processing
+  for my $script (@post_extract_host) {
+    print "+ post_extract_host $script ...\n" if $verbose;
+    my $out = qx($script $root/$host);
+    print $out if $out && $verbose;
   }
 }
 

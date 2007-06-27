@@ -1,0 +1,8 @@
+
++ add initial post_extract_host support
++ add sample extract_tarball script
+
+- add sample extract_bzr script
+- add post_extract support
+- convert from Config::Tiny to AppConfig
+

@@ -1,0 +1,18 @@
+#!/bin/sh
+#
+# Example post_extract script, packing extracted files into a date-stamped tarball
+#
+
+DIR=$1 || exit 1
+
+HOST=`basename $DIR`
+DATE=`date +%Y%m%d`
+
+cd $DIR || exit 2
+
+# Create the tarball
+tar -zcf $HOST-$DATE.tar.gz --exclude "$HOST*tar.gz" --remove-files *
+
+# Tar won't remove directories, apparently - so do that explicitly
+find . -depth -type d -exec rmdir {} \;
+
