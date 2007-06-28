@@ -2,10 +2,10 @@
 # Where extracted files are located
 root = /data/extract
 
-# Host list from which to extract
+# Hosts from which to extract (space separated)
 #hosts = host1 host2 host3
 
-# List of files to extract (on the remote host, not locally)
+# File containing list of files to extract (on the remote host, not locally)
 files = /var/cache/rpm-find-changes/etc.txt
 
 # Post process scripts

@@ -10,19 +10,21 @@ use File::Path;
 use File::Rsync;
 
 my %opts = ();
-getopts('h?nt:v', \%opts);
+getopts('h?dnt:v', \%opts);
+my $debug = $opts{d};
 my $help = $opts{h} || $opts{'?'};
 my $noop = $opts{n};
 my $timeout = $opts{t} || 30;
 my $verbose = $opts{v};
 
 # Read config file
-my $config = Config::Tiny->read('/etc/extract.conf');
+my $config = Config::Tiny->read('/etc/extract/extract.conf');
 $config ||= Config::Tiny->read(File::Spec->catfile( $FindBin::RealBin, File::Spec->updir, 'etc', 'extract.conf' ));
 die "Cannot find extract.conf config file\n" unless $config;
 
 # Check we have hosts to extract from
-my @hosts = $config->{_}->{hosts} ? split /\s*,\s*/, $config->{_}->{hosts} : @ARGV;
+my @hosts = @ARGV;
+@hosts = split(/\s+/, $config->{_}->{hosts}) if $config->{_}->{hosts} && ! @hosts;
 die "usage: " . basename($FindBin::RealScript) . " [-v] [-n] [-t <timeout_sec>] <host1> [<host2> ...]\n" 
   if $help || ! @hosts;
 
@@ -41,9 +43,16 @@ chdir $root or die "Cannot chdir to extract root '$root': $!\n";
 # Iterate over hosts, doing extracts
 my %extra = ( $verbose ? (verbose => 1) : (quiet => 1) );
 $extra{'dry-run'} = 1 if $noop;
+$extra{'debug'} = 1 if $debug;
 my $rsync = File::Rsync->new( { archive => 1, 'copy-links' => 1, 'files-from' => ":$files", %extra })
   or die "rsync construction failed: $!\n";
 for my $host (@hosts) {
+  # Support user@host format hosts
+  my $user = '';
+  ($user, $host) = split(/\@/, $host, 2) if $host =~ m'@';
+  print "+ connecting as $user\@$host\n" if $user && $verbose;
+  
+  # Create host dir, if required
   die "Cannot mkdir $host: $!\n" unless -d $host or mkdir $host;
   print "+ extracting from $host ...\n" if $verbose;
 
@@ -51,7 +60,8 @@ for my $host (@hosts) {
   eval {
     local $SIG{ALRM} = sub { die "Timeout!" };
     alarm $timeout;
-    $rsync->exec({ src => "$host:/", dest => $host }) 
+    my $src = $user ? "$user\@$host:/" : "$host:/";
+    $rsync->exec({ src => $src, dest => $host }) 
       or die "rsync exec failed: $!\n";
   };
   alarm 0;
@@ -80,9 +90,15 @@ for my $host (@hosts) {
 
   # Post-extract processing
   for my $script (@post_extract_host) {
+    unless (-x $script) {
+      print "Invalid script $script - skipping\n";
+      next;
+    }
     print "+ post_extract_host $script ...\n" if $verbose;
     my $out = qx($script $root/$host);
     print $out if $out && $verbose;
   }
 }
+
+print "+ done.\n" if $verbose;
 

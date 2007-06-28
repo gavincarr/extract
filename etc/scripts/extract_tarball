@@ -14,5 +14,6 @@ cd $DIR || exit 2
 tar -zcf $HOST-$DATE.tar.gz --exclude "$HOST*tar.gz" --remove-files *
 
 # Tar won't remove directories, apparently - so do that explicitly
-find . -depth -type d -exec rmdir {} \;
+#find . -xdev -depth -type d -wholename './*' -exec rmdir {} \;
+find . -xdev -depth -type d -wholename './*' -delete
 
