@@ -1,7 +1,7 @@
 
 Name: extract
 Summary: extract is a tool for periodically copying data from a remote machine
-Version: 0.1.1
+Version: 0.1.2
 Release: 1%{?org_tag}
 Source0: %{name}-%{version}.tar.gz
 License: GPL
@@ -25,11 +25,12 @@ checks on it, etc.
 
 %install
 mkdir -p %{buildroot}%{_bindir}
-mkdir -p %{buildroot}%{_sysconfdir}/extract/scripts
+mkdir -p %{buildroot}%{_sysconfdir}/extract/{cron.d,scripts}
 
 install bin/extract %{buildroot}%{_bindir}
 cp -p etc/extract.conf.dist %{buildroot}%{_sysconfdir}/extract/extract.conf
 cp -p etc/scripts/* %{buildroot}%{_sysconfdir}/extract/scripts
+cp -p etc/cron.d/* %{buildroot}%{_sysconfdir}/extract/cron.d
 
 %clean
 [ "%{buildroot}" != "/" ] && rm -rf %{buildroot}
@@ -37,10 +38,15 @@ cp -p etc/scripts/* %{buildroot}%{_sysconfdir}/extract/scripts
 %files
 %defattr(-,root,root)
 %{_bindir}/*
-%config(noreplace) %{_sysconfdir}/extract/*
+%config(noreplace) %{_sysconfdir}/extract/*.conf
+%config(noreplace) %{_sysconfdir}/extract/scripts/*
+%config(noreplace) %{_sysconfdir}/extract/cron.d/*
 
 
 %changelog
+* Thu Jun 28 2007 Gavin Carr <gavin@openfusion.com.au> 0.1.2-1
+- Add a sample cron job to spec file.
+
 * Thu Jun 28 2007 Gavin Carr <gavin@openfusion.com.au> 0.1.1-1
 - Add support for user@host format hosts.
 - Various minor bug fixes.

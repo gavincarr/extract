@@ -1,0 +1,3 @@
+# extract cron job - uncomment the following to enable
+#0 20 * * * root /usr/bin/extract
+
