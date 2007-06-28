@@ -1,7 +1,7 @@
 
 Name: extract
 Summary: extract is a tool for periodically copying data from a remote machine
-Version: 0.1.3
+Version: 0.1.4
 Release: 1%{?org_tag}
 Source0: %{name}-%{version}.tar.gz
 License: GPL
