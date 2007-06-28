@@ -61,8 +61,7 @@ for my $host (@hosts) {
     local $SIG{ALRM} = sub { die "Timeout!" };
     alarm $timeout;
     my $src = $user ? "$user\@$host:/" : "$host:/";
-    $rsync->exec({ src => $src, dest => $host }) 
-      or die "rsync exec failed: $!\n";
+    $rsync->exec({ src => $src, dest => $host });
   };
   alarm 0;
   if ($@) {
@@ -78,7 +77,9 @@ for my $host (@hosts) {
 
   # Process errors and output
   if (my $err = $rsync->err) {
-    print join('', @$err);
+    print "Errors from $host:\n  ";
+    print join('  ', @$err);
+    next;
   }
   if ($verbose) {
     print "+ cmd: " . $rsync->lastcmd . "\n";
@@ -100,5 +101,5 @@ for my $host (@hosts) {
   }
 }
 
-print "+ done.\n" if $verbose;
+print "\n+ done.\n" if $verbose;
 
