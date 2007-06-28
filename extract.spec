@@ -2,7 +2,7 @@
 Name: extract
 Summary: extract is a tool for periodically copying data from a remote machine
 Version: 0.1.2
-Release: 1%{?org_tag}
+Release: 2%{?org_tag}
 Source0: %{name}-%{version}.tar.gz
 License: GPL
 URL: http://www.openfusion.com.au/labs/
@@ -25,12 +25,13 @@ checks on it, etc.
 
 %install
 mkdir -p %{buildroot}%{_bindir}
-mkdir -p %{buildroot}%{_sysconfdir}/extract/{cron.d,scripts}
+mkdir -p %{buildroot}%{_sysconfdir}/extract/scripts
+mkdir -p %{buildroot}%{_sysconfdir}/cron.d
 
 install bin/extract %{buildroot}%{_bindir}
 cp -p etc/extract.conf.dist %{buildroot}%{_sysconfdir}/extract/extract.conf
 cp -p etc/scripts/* %{buildroot}%{_sysconfdir}/extract/scripts
-cp -p etc/cron.d/* %{buildroot}%{_sysconfdir}/extract/cron.d
+cp -p etc/cron.d/* %{buildroot}%{_sysconfdir}/cron.d
 
 %clean
 [ "%{buildroot}" != "/" ] && rm -rf %{buildroot}
@@ -40,7 +41,7 @@ cp -p etc/cron.d/* %{buildroot}%{_sysconfdir}/extract/cron.d
 %{_bindir}/*
 %config(noreplace) %{_sysconfdir}/extract/*.conf
 %config(noreplace) %{_sysconfdir}/extract/scripts/*
-%config(noreplace) %{_sysconfdir}/extract/cron.d/*
+%config(noreplace) %{_sysconfdir}/cron.d/*
 
 
 %changelog
