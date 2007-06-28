@@ -1,8 +1,8 @@
 
 Name: extract
 Summary: extract is a tool for periodically copying data from a remote machine
-Version: 0.1.2
-Release: 3%{?org_tag}
+Version: 0.1.3
+Release: 1%{?org_tag}
 Source0: %{name}-%{version}.tar.gz
 License: GPL
 URL: http://www.openfusion.com.au/labs/
