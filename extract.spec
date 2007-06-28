@@ -45,6 +45,15 @@ cp -p etc/cron.d/* %{buildroot}%{_sysconfdir}/cron.d
 
 
 %changelog
+* Thu Jun 28 2007 Gavin Carr <gavin@openfusion.com.au> 0.1.5-1
+- Tweak error handling in extract itself.
+
+* Thu Jun 28 2007 Gavin Carr <gavin@openfusion.com.au> 0.1.4-1
+- Fix more find version problems in extract_tarball.
+
+* Thu Jun 28 2007 Gavin Carr <gavin@openfusion.com.au> 0.1.3-1
+- Fix find version problems in extract_tarball.
+
 * Thu Jun 28 2007 Gavin Carr <gavin@openfusion.com.au> 0.1.2-1
 - Add a sample cron job to spec file.
 
