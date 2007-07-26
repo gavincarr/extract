@@ -9,6 +9,6 @@ root = /data/extract
 files = /var/cache/rpm-find-changes/etc.txt
 
 # Post process scripts
-post_extract_host = /etc/extract/scripts/extract_tarball
-post_extract =
+#post_extract_host = /etc/extract/scripts/post_extract_tarball
+#post_extract_host = /etc/extract/scripts/post_extract_bzr
 
