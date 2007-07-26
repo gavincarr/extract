@@ -8,6 +8,9 @@ root = /data/extract
 # File containing list of files to extract (on the remote host, not locally)
 files = /var/cache/rpm-find-changes/etc.txt
 
+# Pre-process scripts
+#pre_extract_host  = /etc/extract/scripts/pre_extract_delete
+
 # Post process scripts
 #post_extract_host = /etc/extract/scripts/post_extract_tarball
 #post_extract_host = /etc/extract/scripts/post_extract_bzr
