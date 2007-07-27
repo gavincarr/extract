@@ -21,11 +21,8 @@ test -d .bzr || $BZR init . || die "bzr init failed"
 CHANGES=$($BZR status --short)
 if [ -n "$CHANGES" ]; then
   NOW=$(date '+%Y-%m-%d %H:%M:%S')
-  $BZR add . 2>/dev/null | grep -v Added
-  if [ $? -gt 0 ]; then
-    die "bzr add failed"
-  fi
-  $BZR commit --strict -m "Changes to $NOW" | grep -v Committed
+  OUT=$($BZR add . 2>&1 | grep -v added)
+  OUT=$($BZR commit --strict -m "Changes to $NOW" 2>&1 | grep -v Committed)
   if [ $? -gt 0 ]; then
     die "bzr commit failed"
   fi
