@@ -3,12 +3,14 @@
 # Example post_extract script, packing extracted files into a date-stamped tarball
 #
 
-DIR=$1 || exit 1
+ROOT=$1 || exit 1
+HOST=$2 || exit 2
+FILE=$3 || exit 3
 
-HOST=`basename $DIR`
+DIR="$ROOT/$HOST"
+cd $DIR || exit 99
+
 DATE=`date +%Y%m%d`
-
-cd $DIR || exit 2
 
 # Create the tarball
 tar -zcf $HOST-$DATE.tar.gz --exclude "$HOST*tar.gz" --remove-files *

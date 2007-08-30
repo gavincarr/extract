@@ -5,11 +5,15 @@
 
 die() {
   echo $*
-  exit 1
+  exit 99
 }
 
-DIR=$1 || exit 1
-cd $DIR || exit 2
+ROOT=$1 || exit 1
+HOST=$2 || exit 2
+FILE=$3 || exit 3
+
+DIR="$ROOT/$HOST"
+cd $DIR || die "Cannot cd to '$DIR'"
 
 BZR=/usr/bin/bzr
 test -x $BZR || die "Cannot find bzr executable"

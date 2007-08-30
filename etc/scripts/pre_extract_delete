@@ -1,15 +1,19 @@
 #!/bin/bash
 #
-# Example pre_extract script, remove all existing files from a branch
+# Example pre_extract script - remove all existing files from a branch
 #
 
 die() {
   echo $*
-  exit 1
+  exit 99
 }
 
-DIR=$1 || exit 1
-cd $DIR || exit 2
+ROOT=$1 || exit 1
+HOST=$2 || exit 2
+FILE=$3 || exit 3
+
+DIR="$ROOT/$HOST"
+cd $DIR || die "Cannot cd to '$DIR'"
 
 # Sanity check
 /bin/echo $DIR | /bin/grep --quiet extract || die "Bad directory $DIR - does not match 'extract'"

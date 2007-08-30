@@ -31,7 +31,7 @@ die "usage: " . basename($FindBin::RealScript) . " [-v] [-n] [-c <config>] [-t <
 
 # Check we have other required settings
 my $root = $config->{_}->{root} or die "Cannot find required 'root' property in extract.conf\n";
-my $files = $config->{_}->{files} or die "Cannot find required 'files' property in extract.conf\n";
+my $file = $config->{_}->{files} or die "Cannot find required 'files' property in extract.conf\n";
 -d $root or die "Extract root '$root' does not exist or is not a directory\n";
 -w $root or die "Extract root '$root' is not writeable\n";
 my @pre_extract_host = ();
@@ -50,7 +50,7 @@ chdir $root or die "Cannot chdir to extract root '$root': $!\n";
 my %extra = ( $verbose ? (verbose => 1) : (quiet => 1) );
 $extra{'dry-run'} = 1 if $noop;
 $extra{'debug'} = 1 if $debug;
-my $rsync = File::Rsync->new( { archive => 1, 'copy-links' => 1, 'files-from' => ":$files", %extra })
+my $rsync = File::Rsync->new( { archive => 1, 'copy-links' => 1, 'files-from' => ":$file", %extra })
   or die "rsync construction failed: $!\n";
 for my $host (@hosts) {
   # Support user@host format hosts
@@ -69,7 +69,7 @@ for my $host (@hosts) {
       next;
     }
     print "+ pre_extract_host $script ...\n" if $verbose;
-    my $out = qx($script $root/$host $files);
+    my $out = qx($script $root $host $file);
     print $out if $out && $verbose;
   }
 
@@ -117,7 +117,7 @@ for my $host (@hosts) {
       next;
     }
     print "+ post_extract_host $script ...\n" if $verbose;
-    my $out = qx($script $root/$host $files);
+    my $out = qx($script $root $host $file);
     print $out if $out && $verbose;
   }
 }
