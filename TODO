@@ -1,8 +1,11 @@
 
 + add initial post_extract_host support
 + add sample extract_tarball script
++ add simple extract_bzr script
++ pass the config file list to pre/post_extract_host scripts to do stuff with
 
-- add sample extract_bzr script
+- BUG: 'files' can presumably be a list, but we're only treating it as a single file
+
 - add post_extract support
 - convert from Config::Tiny to AppConfig
 

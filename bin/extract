@@ -69,7 +69,7 @@ for my $host (@hosts) {
       next;
     }
     print "+ pre_extract_host $script ...\n" if $verbose;
-    my $out = qx($script $root/$host);
+    my $out = qx($script $root/$host $files);
     print $out if $out && $verbose;
   }
 
@@ -78,6 +78,10 @@ for my $host (@hosts) {
     local $SIG{ALRM} = sub { die "Timeout!" };
     alarm $timeout;
     my $src = $user ? "$user\@$host:/" : "$host:/";
+    if ($verbose) {
+      my ($cmd) = $rsync->getcmd({ src => $src, dest => $host } );
+      printf "+ %s\n", join(' ', @$cmd);
+    }
     $rsync->exec({ src => $src, dest => $host });
   };
   alarm 0;
@@ -113,10 +117,39 @@ for my $host (@hosts) {
       next;
     }
     print "+ post_extract_host $script ...\n" if $verbose;
-    my $out = qx($script $root/$host);
+    my $out = qx($script $root/$host $files);
     print $out if $out && $verbose;
   }
 }
 
 print "\n+ done.\n" if $verbose;
+
+__END__
+
+=head1 NAME
+
+extract - a utility to copy a set of files off one or more remote hosts
+into a set of local host trees
+
+=head1 SYNOPSIS
+
+    extract [-c <config_file>] [<host1> [<host2> ...]]
+
+=head1 DESCRIPTION
+
+extract is a utility to copy a set of files off one or more remote hosts
+into a set of local host trees. 
+
+=head1 AUTHOR
+
+Gavin Carr <gavin@openfusion.com.au>
+
+=head1 LICENSE
+
+Copyright 2007, Gavin Carr
+
+This software is licensed under the GNU General Public Licence, Version 2.
+
+=cut
+
 
