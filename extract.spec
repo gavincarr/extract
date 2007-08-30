@@ -1,7 +1,7 @@
 
 Name: extract
 Summary: extract is a tool for periodically copying data from a remote machine
-Version: 0.2.4
+Version: 0.2.5
 Release: 1%{?org_tag}
 Source0: %{name}-%{version}.tar.gz
 License: GPL
@@ -45,6 +45,9 @@ cp -p etc/cron.d/* %{buildroot}%{_sysconfdir}/cron.d
 
 
 %changelog
+* Thu Aug 30 2007 Gavin Carr <gavin@openfusion.com.au> 0.2.5-1
+- Tweak extract script parameters again - now pass root, host, file.
+
 * Thu Aug 30 2007 Gavin Carr <gavin@openfusion.com.au> 0.2.4-1
 - Add filelist file to parameters passed to post_extract scripts.
 
