@@ -33,5 +33,11 @@ if [ -n "$CHANGES" ]; then
   if [ $? -gt 0 ]; then
     echo $OUT
   fi
+else
+  # Revert if no changes since we've probably have deleted stuff earlier
+  OUT=$($BZR revert)
+  if [ $? -gt 0 ]; then
+    echo $OUT
+  fi
 fi
 
