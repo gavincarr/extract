@@ -1,7 +1,7 @@
 
 Name: extract
 Summary: extract is a tool for periodically copying data from a remote machine
-Version: 0.2.5
+Version: 0.2.6
 Release: 1%{?org_tag}
 Source0: %{name}-%{version}.tar.gz
 License: GPL
@@ -45,6 +45,9 @@ cp -p etc/cron.d/* %{buildroot}%{_sysconfdir}/cron.d
 
 
 %changelog
+* Thu Dec 20 2007 Gavin Carr <gavin@openfusion.com.au> 0.2.6-1
+- Add a bzr revert to post_extract_bzr script.
+
 * Thu Aug 30 2007 Gavin Carr <gavin@openfusion.com.au> 0.2.5-1
 - Tweak extract script parameters again - now pass root, host, file.
 
