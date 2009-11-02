@@ -30,7 +30,7 @@ mkdir -p %{buildroot}%{_sysconfdir}/cron.d
 
 install bin/extract %{buildroot}%{_bindir}
 cp -p etc/extract.conf.dist %{buildroot}%{_sysconfdir}/extract/extract.conf
-cp -p etc/scripts/* %{buildroot}%{_sysconfdir}/extract/scripts
+cp -p scripts/* %{buildroot}%{_sysconfdir}/extract/scripts
 cp -p etc/cron.d/* %{buildroot}%{_sysconfdir}/cron.d
 
 %clean
