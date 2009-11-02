@@ -1,3 +1,7 @@
+
 # extract cron job - uncomment the following to enable
 #0 20 * * * root /usr/bin/extract
+
+# if using post_extract_git, generate a daily summary of changes (mailed via cron)
+#0 22 * * * root cd /export/extract && /usr/bin/git log --stat --since=yesterday
 
