@@ -77,8 +77,8 @@ for my $host (@hosts) {
       print "Invalid pre_extract_host script $script - skipping\n";
       next;
     }
-    print "+ pre_extract_host $script ...\n" if $verbose;
-    my $out = qx($script $root $host $file);
+    print "+ pre_extract_host $script ...\n" if $verbose || $noop;
+    my $out = qx($script $root $host $file) unless $noop;
     print $out if $out && $verbose;
   }
 
@@ -125,8 +125,8 @@ for my $host (@hosts) {
       print "Invalid post_extract_host script $script - skipping\n";
       next;
     }
-    print "+ post_extract_host $script ...\n" if $verbose;
-    my $out = qx($script $root $host $file);
+    print "+ post_extract_host $script ...\n" if $verbose || $noop;
+    my $out = qx($script $root $host $file) unless $noop;
     print $out if $out && $verbose;
   }
 }
