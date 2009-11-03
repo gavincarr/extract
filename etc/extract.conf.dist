@@ -1,17 +1,21 @@
 
-# Where extracted files are located
-root = /data/extract
+# Where extracted files are to be stored (in per-host trees)
+#root = /data/extract
 
 # Hosts from which to extract (space separated)
 #hosts = host1 host2 host3
 
+# Alternatively, use a command to return a (space separated) list of hosts
+#host_cmd = hosttag -A
+
 # File containing list of files to extract (on the remote host, not locally)
-files = /var/cache/rpm-find-changes/etc.txt
+#files = /var/cache/rpm-find-changes/etc.txt
 
-# Pre-process scripts
-#pre_extract_host  = /etc/extract/scripts/pre_extract_delete
+# Pre-process scripts (the noop one is an example only, don't use)
+#pre_extract_host  = /etc/extract/scripts/pre_extract_noop
 
-# Post process scripts
+# Post process scripts (uncomment one of the following, or supply your own)
 #post_extract_host = /etc/extract/scripts/post_extract_tarball
 #post_extract_host = /etc/extract/scripts/post_extract_bzr
+#post_extract_host = /etc/extract/scripts/post_extract_git
 
