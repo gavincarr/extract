@@ -1,43 +1,41 @@
 #!/bin/bash
 #
-# Example post_extract script, committing any changes to a local bzr branch
+# Post_extract script, committing any changes to a bzr branch.
 #
+
+# If you want just one bzr branch for all hosts, set BRANCH to ALL
+# If you want a bzr branch per host, set BRANCH to HOST
+BRANCH="ALL"
+#BRANCH="HOST"
 
 die() {
   echo $*
   exit 99
 }
 
-ROOT=$1 || exit 1
-HOST=$2 || exit 2
-FILE=$3 || exit 3
+ROOT=$1
+HOST=$2
+#FILE=$3
+
+test -n "$ROOT" -a -n "$HOST" || die "usage: $(basename $0) <extract_root> <host>"
+
+test -z "$BZR" && BZR=/usr/bin/bzr
+test -x $BZR || die "Cannot find bzr executable"
 
 DIR="$ROOT/$HOST"
 cd $DIR || die "Cannot cd to '$DIR'"
 
-BZR=/usr/bin/bzr
-test -x $BZR || die "Cannot find bzr executable"
-
-# Init a local bzr branch (if required)
-test -d .bzr || $BZR init . || die "bzr init failed"
+# Init the bzr branch (if required)
+if [ "$BRANCH" == ALL ]; then
+  test -d ../.bzr || $BZR init .. || die "bzr init failed"
+else
+  test -d .bzr || $BZR init . || die "bzr init failed"
+fi
 
 # Commit any changes found
 CHANGES=$($BZR status --short)
 if [ -n "$CHANGES" ]; then
-  NOW=$(date '+%Y-%m-%d %H:%M:%S')
-  OUT=$($BZR add . 2>&1)
-  if [ $? -gt 0 ]; then
-    echo $OUT
-  fi
-  OUT=$($BZR commit --strict -m "Changes to $NOW" 2>&1)
-  if [ $? -gt 0 ]; then
-    echo $OUT
-  fi
-else
-  # Revert if no changes since we've probably have deleted stuff earlier
-  OUT=$($BZR revert)
-  if [ $? -gt 0 ]; then
-    echo $OUT
-  fi
+  $BZR add . && \
+  $BZR commit --strict -m "Changes to $(date '+%Y-%m-%d %H:%M:%S')."
 fi
 

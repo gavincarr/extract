@@ -1,19 +1,19 @@
-#!/bin/sh
+#!/bin/bash
 #
-# Example post_extract script, packing extracted files into a date-stamped tarball
+# Post_extract script, packing extracted files into a date-stamped tarball
 #
 
-ROOT=$1 || exit 1
-HOST=$2 || exit 2
-FILE=$3 || exit 3
+ROOT=$1
+HOST=$2
+#FILE=$3
+
+test -n "$ROOT" -a -n "$HOST" || die "usage: $(basename $0) <extract_root> <host>"
 
 DIR="$ROOT/$HOST"
 cd $DIR || exit 99
 
-DATE=`date +%Y%m%d`
-
 # Create the tarball
-tar -zcf $HOST-$DATE.tar.gz --exclude "$HOST*tar.gz" --remove-files *
+tar -zcf $HOST-$(date +%Y%m%d).tar.gz --exclude "$HOST*tar.gz" --remove-files *
 
 # Tar won't remove directories, apparently - so do that explicitly
 find . -xdev -depth -type d -regex '^\./.+' -exec rmdir {} \;

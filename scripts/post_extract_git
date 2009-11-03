@@ -1,28 +1,45 @@
 #!/bin/bash
 #
-# Example post_extract script, committing any changes to a global git branch
+# Post_extract script, committing any changes to a git branch.
 #
+
+# If you want just one bzr branch for all hosts, set BRANCH to ALL
+# If you want a bzr branch per host, set BRANCH to HOST
+BRANCH="ALL"
+#BRANCH="HOST"
 
 die() {
   echo $*
   exit 99
 }
 
-ROOT=$1 || exit 1
-HOST=$2 || exit 2
-#FILE=$3 || exit 3
+ROOT=$1
+HOST=$2
+#FILE=$3
 
 test -n "$ROOT" -a -n "$HOST" || die "usage: $(basename $0) <extract_root> <host>"
 
 test -z "$GIT" && GIT=/usr/bin/git
 test -x $GIT || die "Cannot find git executable"
 
-cd $ROOT || die "Cannot cd to '$ROOT'"
-test -d .git || $GIT init || die "git init failed"
+if [ "$BRANCH" == ALL ]; then
+  cd $ROOT || die "Cannot cd to '$ROOT'"
+  test -d .git || $GIT init || die "git init failed"
+fi
 
 DIR="$ROOT/$HOST"
 cd $DIR || die "Cannot cd to '$DIR'"
 
+if [ "$BRANCH" == HOST ]; then
+  cd $ROOT || die "Cannot cd to '$ROOT'"
+  test -d .git || $GIT init || die "git init failed"
+fi
+
+# git doesn't seem to have a simple way to tell if there are outstanding changes 
+# to commit. 'git status .' reports untracked parent-sibling directories, for instance.
+# So just commit blindly in the knowledge that empty commits won't go through.
+
+# Add and commit any changes (git commit -a doesn't work with paths, apparently)
 $GIT add . && \
 $GIT commit -m "Changes to '$(basename $PWD)' to $(date '+%Y-%m-%d %H:%M:%S')." .
 

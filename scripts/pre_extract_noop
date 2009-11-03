@@ -1,0 +1,19 @@
+#!/bin/bash
+#
+# Example pre_extract script (does nothing, example only).
+#
+
+die() {
+  echo $*
+  exit 99
+}
+
+ROOT=$1 || exit 1
+HOST=$2 || exit 2
+FILE=$3 || exit 3
+
+DIR="$ROOT/$HOST"
+cd $DIR || die "Cannot cd to '$DIR'"
+
+# Do something here
+
