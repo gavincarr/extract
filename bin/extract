@@ -50,8 +50,9 @@ chdir $root or die "Cannot chdir to extract root '$root': $!\n";
 my %extra = ( $verbose ? (verbose => 1) : (quiet => 1) );
 $extra{'dry-run'} = 1 if $noop;
 $extra{'debug'} = 1 if $debug;
-my $rsync = File::Rsync->new( { archive => 1, 'copy-links' => 1, 'files-from' => ":$file", %extra })
-  or die "rsync construction failed: $!\n";
+my $rsync = File::Rsync->new( { archive => 1, 'copy-links' => 1, 'delete' => 1, 
+  'files-from' => ":$file", %extra })
+    or die "rsync construction failed: $!\n";
 for my $host (@hosts) {
   # Support user@host format hosts
   my $user = '';
