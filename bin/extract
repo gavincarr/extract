@@ -1,33 +1,42 @@
 #!/usr/bin/perl
 
 use strict;
+use FindBin;
+use File::Basename;
 use Getopt::Std;
 use Config::Tiny;
-use FindBin;
 use File::Spec;
-use File::Basename;
 use File::Path;
 use File::Rsync;
 
+sub usage {
+  my $me = basename($FindBin::RealScript);
+  die "usage: $me [-v] [-n] [-c <config>] [-t <timeout_sec>] [<host1>] [<host2> ...]\n";
+}
+
 my %opts = ();
-getopts('h?c:dnt:v', \%opts);
+getopts('h?c:nt:v', \%opts);
 my $conf_file = $opts{c} || '/etc/extract/extract.conf';
-my $debug = $opts{d};
 my $help = $opts{h} || $opts{'?'};
 my $noop = $opts{n};
 my $timeout = $opts{t} || 60;
 my $verbose = $opts{v};
+
+usage if $help;
 
 # Read config file
 my $config = Config::Tiny->read($conf_file);
 $config ||= Config::Tiny->read(File::Spec->catfile( $FindBin::RealBin, File::Spec->updir, 'etc', 'extract.conf' ));
 die "Cannot find extract.conf config file '$conf_file'\n" unless $config;
 
-# Check we have hosts to extract from
+# Get list of hosts to extract from
 my @hosts = @ARGV;
-@hosts = split(/\s+/, $config->{_}->{hosts}) if $config->{_}->{hosts} && ! @hosts;
-die "usage: " . basename($FindBin::RealScript) . " [-v] [-n] [-c <config>] [-t <timeout_sec>] <host1> [<host2> ...]\n" 
-  if $help || ! @hosts;
+if (! @hosts) {
+  my $hosts = $config->{_}->{hosts} || qx($config->{_}->{host_cmd});
+  @hosts = split(/\s+/, $hosts) if $hosts;
+}
+
+usage if ! @hosts;
 
 # Check we have other required settings
 my $root = $config->{_}->{root} or die "Cannot find required 'root' property in extract.conf\n";
@@ -49,7 +58,6 @@ chdir $root or die "Cannot chdir to extract root '$root': $!\n";
 # Iterate over hosts, doing extracts
 my %extra = ( $verbose ? (verbose => 1) : (quiet => 1) );
 $extra{'dry-run'} = 1 if $noop;
-$extra{'debug'} = 1 if $debug;
 my $rsync = File::Rsync->new( { archive => 1, 'copy-links' => 1, 'delete' => 1, 
   'files-from' => ":$file", %extra })
     or die "rsync construction failed: $!\n";
