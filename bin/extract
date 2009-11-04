@@ -16,7 +16,7 @@ sub usage {
 
 my %opts = ();
 getopts('h?c:nt:v', \%opts);
-my $conf_file = $opts{c} || '/etc/extract/extract.conf';
+my $conf_file = $opts{c};
 my $help = $opts{h} || $opts{'?'};
 my $noop = $opts{n};
 my $timeout = $opts{t} || 60;
@@ -24,9 +24,15 @@ my $verbose = $opts{v};
 
 usage if $help;
 
+# Setup default directories
+my $config_dir = File::Spec->catdir( File::Spec->rootdir, 'etc', 'extract' );
+$config_dir = File::Spec->catdir( $FindBin::RealBin, File::Spec->updir, 'etc' )->canonpath
+  unless -d $config_dir;
+my $scripts_dir = File::Spec->catdir( $config_dir, 'scripts' );
+
 # Read config file
 my $config = Config::Tiny->read($conf_file);
-$config ||= Config::Tiny->read(File::Spec->catfile( $FindBin::RealBin, File::Spec->updir, 'etc', 'extract.conf' ));
+$config ||= Config::Tiny->read(File::Spec->catfile( $config_dir, 'extract.conf' ));
 die "Cannot find extract.conf config file '$conf_file'\n" unless $config;
 
 # Get list of hosts to extract from
@@ -73,6 +79,7 @@ for my $host (@hosts) {
 
   # Pre-extract processing
   for my $script (@pre_extract_host) {
+    $script = File::Spec->rel2abs( $script, $scripts_dir );
     unless (-x $script) {
       print "Invalid pre_extract_host script $script - skipping\n";
       next;
@@ -121,6 +128,7 @@ for my $host (@hosts) {
 
   # Post-extract processing
   for my $script (@post_extract_host) {
+    $script = File::Spec->rel2abs( $script, $scripts_dir );
     unless (-x $script) {
       print "Invalid post_extract_host script $script - skipping\n";
       next;

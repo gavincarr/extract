@@ -12,10 +12,13 @@
 #files = /var/cache/rpm-find-changes/etc.txt
 
 # Pre-process scripts (the noop one is an example only, don't use)
-#pre_extract_host  = /etc/extract/scripts/pre_extract_noop
+# (scripts in /etc/extract/scripts, or absolute paths; comma-separate if more than one)
+#pre_extract_host  = pre_extract_noop
 
 # Post process scripts (uncomment one of the following, or supply your own)
-#post_extract_host = /etc/extract/scripts/post_extract_tarball
-#post_extract_host = /etc/extract/scripts/post_extract_bzr
-#post_extract_host = /etc/extract/scripts/post_extract_git
+# (scripts in /etc/extract/scripts, or absolute paths; comma-separate if more than one)
+#post_extract_host = post_extract_tarball
+#post_extract_host = post_extract_bzr
+#post_extract_host = post_extract_git
+#post_extract_host = post_extract_git,post_extract_touch
 
