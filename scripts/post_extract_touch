@@ -1,0 +1,21 @@
+#!/bin/bash
+#
+# Post_extract script, doing a touch(1) on the $HOST directory for monitoring
+#
+
+die() {
+  echo $*
+  exit 99
+}
+
+ROOT=$1
+HOST=$2
+#FILE=$3
+
+test -n "$ROOT" -a -n "$HOST" || die "usage: $(basename $0) <extract_root> <host>"
+
+DIR="$ROOT/$HOST"
+test -d $DIR || die "Invalid host directory '$DIR'"
+
+touch $DIR || die "Touch on host directory '$DIR' failed"
+
