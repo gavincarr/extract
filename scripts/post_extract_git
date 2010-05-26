@@ -31,7 +31,6 @@ DIR="$ROOT/$HOST"
 cd $DIR || die "Cannot cd to '$DIR'"
 
 if [ "$BRANCH" == HOST ]; then
-  cd $ROOT || die "Cannot cd to '$ROOT'"
   test -d .git || $GIT init || die "git init failed"
 fi
 
