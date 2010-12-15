@@ -3,10 +3,10 @@
 # Post_extract script, committing any changes to a git branch.
 #
 
-# If you want just one bzr branch for all hosts, set BRANCH to ALL
-# If you want a bzr branch per host, set BRANCH to HOST
-BRANCH="ALL"
-#BRANCH="HOST"
+# If you want just one repo for all hosts, set REPO to ALL
+# If you want a repo per host, set REPO to HOST
+REPO="ALL"
+#REPO="HOST"
 
 die() {
   echo $*
@@ -22,7 +22,7 @@ test -n "$ROOT" -a -n "$HOST" || die "usage: $(basename $0) <extract_root> <host
 test -z "$GIT" && GIT=/usr/bin/git
 test -x $GIT || die "Cannot find git executable"
 
-if [ "$BRANCH" == ALL ]; then
+if [ "$REPO" == ALL ]; then
   cd $ROOT || die "Cannot cd to '$ROOT'"
   test -d .git || $GIT init || die "git init failed"
 fi
@@ -30,7 +30,7 @@ fi
 DIR="$ROOT/$HOST"
 cd $DIR || die "Cannot cd to '$DIR'"
 
-if [ "$BRANCH" == HOST ]; then
+if [ "$REPO" == HOST ]; then
   test -d .git || $GIT init || die "git init failed"
 fi
 
