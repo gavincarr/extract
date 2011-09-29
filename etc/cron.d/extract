@@ -3,5 +3,9 @@
 #0 20 * * * root /usr/bin/extract
 
 # if using post_extract_git, generate a daily summary of changes (mailed via cron)
-#0 22 * * * root cd /export/extract && /usr/bin/git log --stat --since=yesterday
+# REPO=ALL version
+#0 40 * * * root cd /data/extract && /usr/bin/git log --stat --since=yesterday
+# REPO=HOST version
+# [Would be nice to use --quiet in the initial git log check, but doesn't work (v1.7.1)?]
+#0 40 * * * root cd /data/extract && for i in *; do test -d $i/.git || continue; git --git-dir=$i/.git log --since=yesterday --exit-code >/dev/null && continue; git --no-pager --git-dir=$i/.git log --stat --since=yesterday && echo; done
 
