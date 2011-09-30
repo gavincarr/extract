@@ -1,9 +1,9 @@
 
 Name: extract
 Summary: extract is a tool for periodically copying data from a remote machine
-Version: 0.3.1
-Release: 1%{?org_tag}
-Source0: %{name}-%{version}.tar.gz
+Version: 0.4
+Release: 1%{?org_tag}%{dist}
+Source: %{name}-%{version}.tar.gz
 License: GPL
 URL: http://www.openfusion.com.au/labs/
 Group: Applications/File
@@ -45,6 +45,12 @@ cp -p etc/cron.d/* %{buildroot}%{_sysconfdir}/cron.d
 
 
 %changelog
+* Fri Sep 30 2011 Gavin Carr <gavin@openfusion.com.au> 0.4-1
+- Split out config loading into separate Extract::Config module.
+- Tweak extract.conf to be usable from shell.
+- Move EXTRACT_GIT_REPO_MODE into extract.conf.
+- Add extract_git_report shell script.
+
 * Wed Nov 04 2009 Gavin Carr <gavin@openfusion.com.au> 0.3.1-1
 - Add post_extract_touch script.
 - Allow non-absolute script filenames in extract.conf (in /etc/extract/scripts).

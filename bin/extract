@@ -154,12 +154,11 @@ into a set of local host trees.
 
 Gavin Carr <gavin@openfusion.com.au>
 
-=head1 LICENSE
+=head1 LICENCE
 
-Copyright 2007, Gavin Carr
+Copyright 2007-2011, Gavin Carr.
 
-This software is licensed under the GNU General Public Licence, Version 2.
+This software is licensed under the GNU General Public Licence, Version 3.
 
 =cut
-
 
