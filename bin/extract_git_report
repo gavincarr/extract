@@ -1,0 +1,36 @@
+#!/bin/bash
+
+die() {
+  echo $*
+  exit 1
+}
+
+# Setup $CONFIG_DIR
+CONFIG_DIR=/etc/extract
+test -d $CONFIG_DIR || CONFIG_DIR=$(basename $0)/../conf
+test -d $CONFIG_DIR || die "Cannot find config directory - aborting"
+
+test -f $CONFIG_DIR/extract.conf || die "No extract.conf file found in config dir $CONFIG_DIR"
+
+. $CONFIG_DIR/extract.conf
+
+test -d "$EXTRACT_ROOT" || die "EXTRACT_ROOT '$EXTRACT_ROOT' not found or not a directory"
+
+if [ "$EXTRACT_GIT_REPO_MODE" == 'ALL' ]; then
+  test -d $EXTRACT_ROOT/.git || die "$EXTRACT_ROOT/.git not found"
+  git --git-dir $EXTRACT_ROOT/.git log --stat --since=yesterday
+
+elif [ "$EXTRACT_GIT_REPO_MODE" == 'HOST' ]; then
+  cd $EXTRACT_ROOT || die "Cannot cd to EXTRACT_ROOT '$EXTRACT_ROOT'"
+  for i in *; do
+    test -d $i/.git || continue
+    # Would be nice to use --quiet here, but doesn't seem to work (in 1.7.1)
+    git --git-dir=$i/.git log --since=yesterday --exit-code >/dev/null && continue
+    git --no-pager --git-dir=$i/.git log --stat --since=yesterday
+    echo
+  done
+
+else
+  die "Invalid EXTRACT_GIT_REPO_MODE $EXTRACT_GIT_REPO_MODE"
+fi
+

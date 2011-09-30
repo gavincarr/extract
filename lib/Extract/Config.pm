@@ -21,9 +21,10 @@ sub _init {
   $config ||= Config::Tiny->read(File::Spec->catfile( $config_dir, 'extract.conf' ));
   croak "Cannot find extract.conf config file '$conf_file'\n" unless $config;
 
-  $config->{_}->{scripts_dir} = $scripts_dir;
+  $config = $config->{_};
+  $config->{SCRIPTS_DIR} = $scripts_dir;
 
-  return $config->{_};
+  return $config;
 }
 
 sub new {

@@ -3,15 +3,19 @@
 # Post_extract script, committing any changes to a git branch.
 #
 
-# If you want just one repo for all hosts, set REPO to ALL
-# If you want a repo per host, set REPO to HOST
-REPO="ALL"
-#REPO="HOST"
-
 die() {
   echo $*
   exit 99
 }
+
+# Setup $CONFIG_DIR
+CONFIG_DIR=/etc/extract
+test -d $CONFIG_DIR || CONFIG_DIR=$(basename $0)/../conf
+test -d $CONFIG_DIR || die "Cannot find config directory - aborting"
+
+test -f $CONFIG_DIR/extract.conf || die "No extract.conf file found in config dir $CONFIG_DIR"
+
+. $CONFIG_DIR/extract.conf
 
 ROOT=$1
 HOST=$2
@@ -22,7 +26,8 @@ test -n "$ROOT" -a -n "$HOST" || die "usage: $(basename $0) <extract_root> <host
 test -z "$GIT" && GIT=/usr/bin/git
 test -x $GIT || die "Cannot find git executable"
 
-if [ "$REPO" == ALL ]; then
+# If $EXTRACT_GIT_REPO_MODE is ALL, we use a single git repo per host
+if [ "$EXTRACT_GIT_REPO_MODE" == ALL ]; then
   cd $ROOT || die "Cannot cd to '$ROOT'"
   test -d .git || $GIT init || die "git init failed"
 fi
@@ -30,7 +35,8 @@ fi
 DIR="$ROOT/$HOST"
 cd $DIR || die "Cannot cd to '$DIR'"
 
-if [ "$REPO" == HOST ]; then
+# If $EXTRACT_GIT_REPO_MODE is HOST, we use a separate git repo for each host
+if [ "$EXTRACT_GIT_REPO_MODE" == HOST ]; then
   test -d .git || $GIT init || die "git init failed"
 fi
 
