@@ -22,6 +22,7 @@ sub _init {
   croak "Cannot find extract.conf config file '$conf_file'\n" unless $config;
 
   $config = $config->{_};
+  s/(^["']|["']$)//g foreach values %$config;   # dequote values
   $config->{SCRIPTS_DIR} = $scripts_dir;
 
   return $config;

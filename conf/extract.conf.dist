@@ -6,7 +6,7 @@ EXTRACT_ROOT=/data/extract
 #EXTRACT_HOSTS=host1 host2 host3
 
 # Alternatively, use a command to return a (space separated) list of hosts
-#EXTRACT_HOST_CMD=hosttag -A
+#EXTRACT_HOST_CMD="hosttag -A"
 
 # File containing list of files to extract (on the remote host, not locally)
 EXTRACT_FILES=/var/cache/rpm-find-changes/etc.txt
