@@ -48,7 +48,7 @@ if (my $tree = $config->{EXTRACT_TREE}) {
   $rsync_args{tree} = $tree;
 }
 if (my $files_remote = $config->{EXTRACT_FILES_REMOTE}) {
-  $rsync_args{':files-from'} = $files_remote;
+  $rsync_args{'files-from'} = ":$files_remote";
   $files = $files_remote;
 }
 if (my $files_local  = $config->{EXTRACT_FILES_LOCAL}) {
