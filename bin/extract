@@ -129,18 +129,18 @@ for my $host (@hosts) {
   }
 
   # Process errors and output
-  if (my $err = $rsync->err) {
-    print "Errors from $host:\n  ";
-    print join('  ', @$err);
-    next;
-  }
   if ($verbose) {
     print "+ cmd: " . $rsync->lastcmd . "\n";
     if (my $out = $rsync->out) {
       print join('', @$out);
     }
-    print "\n";
   }
+  my $err;
+  if ($err = $rsync->err) {
+    print "Errors from $host:\n  ";
+    print join('  ', @$err);
+  }
+  print "\n" if $verbose || $err;
 
   # Post-extract processing
   for my $script (@post_extract_host) {
