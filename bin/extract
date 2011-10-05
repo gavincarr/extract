@@ -38,10 +38,29 @@ if (! @hosts) {
 usage if ! @hosts;
 
 # Check we have other required settings
-my $root = $config->{EXTRACT_ROOT} or die "Cannot find required 'root' property in extract.conf\n";
-my $file = $config->{EXTRACT_FILES} or die "Cannot find required 'files' property in extract.conf\n";
+my %rsync_args = ();
+my $files;
+my $root = $config->{EXTRACT_ROOT}
+  or die "Cannot find required 'EXTRACT_ROOT' property in extract.conf\n";
 -d $root or die "Extract root '$root' does not exist or is not a directory\n";
 -w $root or die "Extract root '$root' is not writeable\n";
+if (my $tree = $config->{EXTRACT_TREE}) {
+  $rsync_args{tree} = $tree;
+}
+if (my $files_remote = $config->{EXTRACT_FILES_REMOTE}) {
+  $rsync_args{':files-from'} = $files_remote;
+  $files = $files_remote;
+}
+if (my $files_local  = $config->{EXTRACT_FILES_LOCAL}) {
+  $rsync_args{'files-from'} = $files_local;
+  $files = $files_local;
+}
+die "One of EXTRACT_TREE, EXTRACT_FILES_REMOTE, or EXTRACT_FILES_LOCAL must be set in extract.conf\n"
+  if scalar keys %rsync_args == 0;
+die "Only one of EXTRACT_TREE, EXTRACT_FILES_REMOTE, or EXTRACT_FILES_LOCAL can be set in extract.conf\n"
+  if scalar keys %rsync_args > 1;
+my $remote_path = delete $rsync_args{tree} || '/';
+
 my @pre_extract_host = ();
 my @post_extract_host = ();
 my @post_extract_host = ();
@@ -55,11 +74,15 @@ if ($config->{POST_EXTRACT_HOST}) {
 chdir $root or die "Cannot chdir to extract root '$root': $!\n";
 
 # Iterate over hosts, doing extracts
-my %extra = ( $verbose ? (verbose => 1) : (quiet => 1) );
-$extra{'dry-run'} = 1 if $noop;
-my $rsync = File::Rsync->new( { archive => 1, 'copy-links' => 1, 'delete' => 1, 
-  'files-from' => ":$file", %extra })
-    or die "rsync construction failed: $!\n";
+if ($verbose) {
+  $rsync_args{verbose} = 1;
+}
+else {
+  $rsync_args{quiet} = 1;
+}
+$rsync_args{'dry-run'} = 1 if $noop;
+my $rsync = File::Rsync->new( { archive => 1, 'copy-links' => 1, 'delete' => 1, %rsync_args })
+  or die "rsync construction failed: $!\n";
 for my $host (@hosts) {
   # Support user@host format hosts
   my $user = '';
@@ -78,7 +101,7 @@ for my $host (@hosts) {
       next;
     }
     print "+ pre_extract_host $script ...\n" if $verbose || $noop;
-    my $out = qx($script $root $host $file) unless $noop;
+    my $out = qx($script $root $host $files) unless $noop;
     print $out if $out && $verbose;
   }
 
@@ -86,7 +109,7 @@ for my $host (@hosts) {
   eval {
     local $SIG{ALRM} = sub { die "Timeout!" };
     alarm $timeout;
-    my $src = $user ? "$user\@$host:/" : "$host:/";
+    my $src = $user ? "$user\@$host:$remote_path" : "$host:$remote_path";
     if ($verbose) {
       my ($cmd) = $rsync->getcmd({ src => $src, dest => $host } );
       printf "+ %s\n", join(' ', @$cmd);
@@ -127,7 +150,7 @@ for my $host (@hosts) {
       next;
     }
     print "+ post_extract_host $script ...\n" if $verbose || $noop;
-    my $out = qx($script $root $host $file) unless $noop;
+    my $out = qx($script $root $host $files) unless $noop;
     print $out if $out && $verbose;
   }
 }
@@ -158,7 +181,18 @@ Gavin Carr <gavin@openfusion.com.au>
 
 Copyright 2007-2011, Gavin Carr.
 
-This software is licensed under the GNU General Public Licence, Version 3.
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 =cut
 
