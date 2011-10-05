@@ -1,15 +1,20 @@
 
 # Where extracted files are to be stored (in per-host trees)
-EXTRACT_ROOT=/data/extract
+#EXTRACT_ROOT=/data/extract
 
-# Hosts from which to extract (space separated)
-#EXTRACT_HOSTS=host1 host2 host3
-
-# Alternatively, use a command to return a (space separated) list of hosts
+# Which hosts should be extracted from?
+# List of hosts (quoted, space separated)
+#EXTRACT_HOSTS="host1 host2 host3"
+# Alternatively, a command to return a (space separated) list of hosts
 #EXTRACT_HOST_CMD="hosttag -A"
 
-# File containing list of files to extract (on the remote host, not locally)
-EXTRACT_FILES=/var/cache/rpm-find-changes/etc.txt
+# Which files should be extracted?
+# File containing list of files to extract (on the remote host)
+#EXTRACT_FILES_REMOTE=/var/cache/rpm-find-changes/etc.txt
+# File containing list of files to extract (on the local/extracting host)
+#EXTRACT_FILES_LOCAL=/etc/extract/synclist.txt
+# Tree on the remote server that should be extracted
+#EXTRACT_TREE=/etc
 
 # Pre-process scripts
 # (scripts in /etc/extract/scripts, or absolute paths; comma-separate if more than one)
