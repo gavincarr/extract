@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Example pre_extract script (does nothing, example only).
+# Example pre_extract_host script (does nothing, example only).
 #
 
 die() {
@@ -8,9 +8,11 @@ die() {
   exit 99
 }
 
-ROOT=$1 || exit 1
-HOST=$2 || exit 2
-FILE=$3 || exit 3
+ROOT=$1
+HOST=$2
+FILE=$3
+
+test -n "$ROOT" -a -n "$HOST" || die "usage: $(basename $0) <extract_root> <host> [<file>]"
 
 DIR="$ROOT/$HOST"
 cd $DIR || die "Cannot cd to '$DIR'"

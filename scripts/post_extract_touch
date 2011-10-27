@@ -1,6 +1,8 @@
 #!/bin/bash
 #
-# Post_extract script, doing a touch(1) on the $HOST directory for monitoring
+# Post_extract script, doing a touch(1) on:
+# - the $HOST directory, if called as a post_extract_host script, or:
+# - the $ROOT directory, if called as a post_extract_teardown script.
 #
 
 die() {
@@ -12,10 +14,15 @@ ROOT=$1
 HOST=$2
 #FILE=$3
 
-test -n "$ROOT" -a -n "$HOST" || die "usage: $(basename $0) <extract_root> <host>"
+test -n "$ROOT" || die "usage: $(basename $0) <extract_root> [<host>]"
 
-DIR="$ROOT/$HOST"
-test -d $DIR || die "Invalid host directory '$DIR'"
+if [ -n "$HOST" ]; then
+  DIR="$ROOT/$HOST"
+  test -d $DIR || die "Invalid host directory '$DIR'"
+else
+  DIR=$ROOT
+  test -d $DIR || die "Invalid root directory '$DIR'"
+fi
 
-touch $DIR || die "Touch on host directory '$DIR' failed"
+touch $DIR || die "Touch on directory '$DIR' failed"
 
