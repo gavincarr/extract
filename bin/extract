@@ -40,7 +40,7 @@ usage if ! @hosts;
 
 # Check we have other required settings
 my %rsync_args = ();
-my $files;
+my $files = '';
 my $root = $config->{EXTRACT_ROOT}
   or die "Cannot find required 'EXTRACT_ROOT' property in extract.conf\n";
 -d $root or die "Extract root '$root' does not exist or is not a directory\n";
