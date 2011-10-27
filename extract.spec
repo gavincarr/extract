@@ -1,7 +1,7 @@
 
 Name: extract
 Summary: extract is a tool for periodically copying data from a remote machine
-Version: 0.5.2
+Version: 0.6
 Release: 1%{?org_tag}%{dist}
 Source: %{name}-%{version}.tar.gz
 License: GPL
@@ -32,6 +32,7 @@ mkdir -p %{buildroot}%{perl_vendorlib}/Extract
 install bin/extract %{buildroot}%{_bindir}
 install bin/extract_git_report %{buildroot}%{_bindir}
 cp -p lib/Extract/Config.pm %{buildroot}%{perl_vendorlib}/Extract
+cp -p lib/Extract/Utils.pm %{buildroot}%{perl_vendorlib}/Extract
 cp -p conf/extract.conf.dist %{buildroot}%{_sysconfdir}/extract/extract.conf
 cp -p conf/cron.d/* %{buildroot}%{_sysconfdir}/cron.d
 cp -p scripts/* %{buildroot}%{_sysconfdir}/extract/scripts
@@ -49,6 +50,9 @@ cp -p scripts/* %{buildroot}%{_sysconfdir}/extract/scripts
 
 
 %changelog
+* Thu Oct 27 2011 Gavin Carr <gavin@openfusion.com.au> 0.6
+- Add pre_extract_setup and post_extract_teardown hooks.
+
 * Thu Oct 06 2011 Gavin Carr <gavin@openfusion.com.au> 0.5.2-1
 - Fix bug with remote files-from handling.
 
