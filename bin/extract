@@ -10,6 +10,7 @@ use File::Rsync;
 use FindBin qw($Bin $Script);
 use lib "$Bin/../lib";
 use Extract::Config;
+use Extract::Utils qw(run_scripts);
 
 sub usage {
   my $me = basename($Script);
@@ -61,17 +62,22 @@ die "Only one of EXTRACT_TREE, EXTRACT_FILES_REMOTE, or EXTRACT_FILES_LOCAL can 
   if scalar keys %rsync_args > 1;
 my $remote_path = delete $rsync_args{tree} || '/';
 
-my @pre_extract_host = ();
-my @post_extract_host = ();
-my @post_extract_host = ();
-if ($config->{PRE_EXTRACT_HOST}) {
-  @pre_extract_host = split /\s*,\s*/, $config->{PRE_EXTRACT_HOST};
-}
-if ($config->{POST_EXTRACT_HOST}) {
-  @post_extract_host = split /\s*,\s*/, $config->{POST_EXTRACT_HOST};
-}
+my @pre_extract_setup = split /\s*,\s*/, $config->{PRE_EXTRACT_SETUP} if $config->{PRE_EXTRACT_SETUP};
+my @pre_extract_host  = split /\s*,\s*/, $config->{PRE_EXTRACT_HOST}  if $config->{PRE_EXTRACT_HOST};
+my @post_extract_host = split /\s*,\s*/, $config->{POST_EXTRACT_HOST} if $config->{POST_EXTRACT_HOST};
+my @post_extract_teardown = split /\s*,\s*/, $config->{POST_EXTRACT_TEARDOWN} if $config->{POST_EXTRACT_TEARDOWN};
 
 chdir $root or die "Cannot chdir to extract root '$root': $!\n";
+
+# Run any pre_extract_setup scripts
+run_scripts(
+  type => 'pre_extract_setup',
+  scripts => \@pre_extract_setup,
+  params  => [ $root ],
+  config  => $config,
+  verbose => $verbose,
+  noop    => $noop,
+) if @pre_extract_setup;
 
 # Iterate over hosts, doing extracts
 if ($verbose) {
@@ -93,17 +99,15 @@ for my $host (@hosts) {
   die "Cannot mkdir $host: $!\n" unless -d $host or mkdir $host;
   print "+ extracting from $host ...\n" if $verbose;
 
-  # Pre-extract processing
-  for my $script (@pre_extract_host) {
-    $script = File::Spec->rel2abs( $script, $config->{SCRIPTS_DIR} );
-    unless (-x $script) {
-      print "Invalid pre_extract_host script $script - skipping\n";
-      next;
-    }
-    print "+ pre_extract_host $script ...\n" if $verbose || $noop;
-    my $out = qx($script $root $host $files) unless $noop;
-    print $out if $out && $verbose;
-  }
+  # Run any pre_extract_host scripts
+  run_scripts(
+    type => 'pre_extract_host',
+    scripts => \@pre_extract_host,
+    params  => [ $root, $host, $files ],
+    config  => $config,
+    verbose => $verbose,
+    noop    => $noop,
+  ) if @pre_extract_host;
 
   # Timeout protection
   eval {
@@ -142,18 +146,26 @@ for my $host (@hosts) {
   }
   print "\n" if $verbose || $err;
 
-  # Post-extract processing
-  for my $script (@post_extract_host) {
-    $script = File::Spec->rel2abs( $script, $config->{SCRIPTS_DIR} );
-    unless (-x $script) {
-      print "Invalid post_extract_host script $script - skipping\n";
-      next;
-    }
-    print "+ post_extract_host $script ...\n" if $verbose || $noop;
-    my $out = qx($script $root $host $files) unless $noop;
-    print $out if $out && $verbose;
-  }
+  # Run any post_extract_host scripts
+  run_scripts(
+    type => 'post_extract_host',
+    scripts => \@post_extract_host,
+    params  => [ $root, $host, $files ],
+    config  => $config,
+    verbose => $verbose,
+    noop    => $noop,
+  ) if @post_extract_host;
 }
+
+# Run any post_extract_teardown scripts
+run_scripts(
+  type => 'post_extract_teardown',
+  scripts => \@post_extract_teardown,
+  params  => [ $root ],
+  config  => $config,
+  verbose => $verbose,
+  noop    => $noop,
+) if @post_extract_teardown;
 
 print "\n+ done.\n" if $verbose;
 
@@ -166,7 +178,7 @@ into a set of local host trees
 
 =head1 SYNOPSIS
 
-    extract [-c <config_file>] [<host1> [<host2> ...]]
+    extract [-v] [-n] [-c <config_file>] [<host1> [<host2> ...]]
 
 =head1 DESCRIPTION
 

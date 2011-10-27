@@ -1,0 +1,19 @@
+#!/bin/bash
+#
+# Example pre_extract_setup script, run once before any extracts
+# are done.
+#
+# Script does nothing, example only.
+#
+
+die() {
+  echo $*
+  exit 99
+}
+
+ROOT=$1 || exit 1
+
+cd $ROOT || die "Cannot cd to '$ROOT'"
+
+# Do something here
+

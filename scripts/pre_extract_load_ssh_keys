@@ -1,0 +1,27 @@
+#!/bin/bash
+#
+# Example pre_extract_setup script to make sure ssh keys are loaded into an ssh-agent
+#
+
+die() {
+  echo $*
+  exit 99
+}
+
+#ROOT=$1 || exit 1
+
+if [ -f ~/.ssh/id_?sa ]; then
+  # Source any existing ~/.shag.$HOSTNAME file
+  test -f $HOME/.shag.$HOSTNAME && . ~/.shag.$HOSTNAME
+
+  # ssh-agent
+  if [ -z "$SSH_AGENT_PID" -o -z "$(pgrep -u $USER ssh-agent | grep ${SSH_AGENT_PID:-1})" ]; then
+    eval $(ssh-agent -s | tee ~/.shag.$HOSTNAME)
+  fi
+
+  ssh-add -l | grep -q 'no identities' && ssh-add
+
+else
+  die "No ~/.ssh/id_?sa keys found?!"
+fi
+

@@ -1,0 +1,19 @@
+#!/bin/bash
+#
+# Example post_extract_teardown script, run once after all extracts
+# have been done for all hosts.
+#
+# Script does nothing, example only.
+#
+
+die() {
+  echo $*
+  exit 99
+}
+
+ROOT=$1 || exit 1
+
+cd $ROOT || die "Cannot cd to '$ROOT'"
+
+# Do something here
+

@@ -18,14 +18,20 @@
 
 # Pre-process scripts
 # (scripts in /etc/extract/scripts, or absolute paths; comma-separate if more than one)
+# PRE_EXTRACT_SETUP - run once only, before any extracts are done
+#PRE_EXTRACT_SETUP=pre_extract_setup
+# PRE_EXTRACT_HOST - run before each individual host extract
 #PRE_EXTRACT_HOST=pre_extract_noop
 
 # Post process scripts
 # (scripts in /etc/extract/scripts, or absolute paths; comma-separate if more than one)
+# POST_EXTRACT_HOST - run after each individual host extract
 #POST_EXTRACT_HOST=post_extract_tarball
 #POST_EXTRACT_HOST=post_extract_bzr
 #POST_EXTRACT_HOST=post_extract_git
 #POST_EXTRACT_HOST=post_extract_git,post_extract_touch
+# POST_EXTRACT_TEARDOWN - run once only, after all extracts are completed
+#POST_EXTRACT_TEARDOWN=post_extract_teardown
 
 # If using post_extract_git, whether to create:
 # - a single repo for all hosts - EXTRACT_GIT_REPO_MODE=ALL
