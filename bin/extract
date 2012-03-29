@@ -113,6 +113,8 @@ for my $host (@hosts) {
   eval {
     local $SIG{ALRM} = sub { die "Timeout!" };
     alarm $timeout;
+
+    # Do the extract rsync
     my $src = $user ? "$user\@$host:$remote_path" : "$host:$remote_path";
     if ($verbose) {
       my ($cmd) = $rsync->getcmd({ src => $src, dest => $host } );
