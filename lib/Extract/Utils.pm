@@ -1,7 +1,6 @@
 package Extract::Utils;
 
 use strict;
-use warnings;
 use Exporter::Lite;
 use Carp;
 
@@ -26,7 +25,7 @@ sub run_scripts
       print "Non-executable $type script $script - skipping\n";
       next;
     }
-    print "+ $type $script ...\n" if $args{verbose} || $args{noop};
+    print "+ $type $script ...\n" if $args{verbose} or $args{noop};
     my $params_list = join ' ', @$params;
     my $out = qx($script $params_list) unless $args{noop};
     print $out if $out && $args{verbose};
