@@ -1,7 +1,7 @@
 
 Name: extract
 Summary: extract is a tool for periodically copying data from a remote machine
-Version: 0.6.1
+Version: 0.7
 Release: 1%{?org_tag}%{dist}
 Source: %{name}-%{version}.tar.gz
 License: GPL
@@ -50,6 +50,9 @@ cp -p scripts/* %{buildroot}%{_sysconfdir}/extract/scripts
 
 
 %changelog
+* Fri Jul 06 2012 Gavin Carr <gavin@openfusion.com.au> 0.7
+- Pass config file as second parameter to scripts (breaking change).
+
 * Tue Jun 26 2012 Gavin Carr <gavin@openfusion.com.au> 0.6.1-1
 - Silence a stupid warning in Extract::Utils::run_scripts.
 
