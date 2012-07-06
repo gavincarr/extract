@@ -103,7 +103,7 @@ for my $host (@hosts) {
   run_scripts(
     type => 'pre_extract_host',
     scripts => \@pre_extract_host,
-    params  => [ $root, $host, $files, $conf_file ],
+    params  => [ $root, $conf_file, $host, $files ],
     config  => $config,
     verbose => $verbose,
     noop    => $noop,
@@ -152,7 +152,7 @@ for my $host (@hosts) {
   run_scripts(
     type => 'post_extract_host',
     scripts => \@post_extract_host,
-    params  => [ $root, $host, $files, $conf_file ],
+    params  => [ $root, $conf_file, $host, $files ],
     config  => $config,
     verbose => $verbose,
     noop    => $noop,

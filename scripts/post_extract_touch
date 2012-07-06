@@ -11,9 +11,9 @@ die() {
 }
 
 ROOT=$1
-HOST=$2
-FILE=$3
-CONFIG=$4
+CONFIG=$2
+HOST=$3
+FILE=$4
 
 test -n "$ROOT" || die "usage: $(basename $0) <extract_root> [<host>]"
 

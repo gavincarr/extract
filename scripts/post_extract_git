@@ -9,9 +9,9 @@ die() {
 }
 
 ROOT=$1
-HOST=$2
-FILE=$3
-CONFIG=$4
+CONFIG=$2
+HOST=$3
+FILE=$4
 
 test -f $CONFIG || die "Missing config file $CONFIG"
 . $CONFIG
