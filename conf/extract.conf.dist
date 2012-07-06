@@ -36,7 +36,7 @@
 # If using post_extract_git, whether to create:
 # - a single repo for all hosts - EXTRACT_GIT_REPO_MODE=ALL
 # - a repo for each host - EXTRACT_GIT_REPO_MODE=HOST
-# ALL is simpler and works fine if the number of hosts is relatively small (< 20 ?)
+# ALL is simpler and works fine if the number of hosts is relatively small (< 50 ?)
 #EXTRACT_GIT_REPO_MODE=ALL
 #EXTRACT_GIT_REPO_MODE=HOST
 
