@@ -5,14 +5,20 @@ die() {
   exit 1
 }
 
-# Setup $CONFIG_DIR
-CONFIG_DIR=/etc/extract
-test -d $CONFIG_DIR || CONFIG_DIR=$(basename $0)/../conf
-test -d $CONFIG_DIR || die "Cannot find config directory - aborting"
+CONFIG=$1
 
-test -f $CONFIG_DIR/extract.conf || die "No extract.conf file found in config dir $CONFIG_DIR"
+if [ -z "$CONFIG" ]; then
+  # Setup $CONFIG_DIR
+  CONFIG_DIR=/etc/extract
+  test -d $CONFIG_DIR || CONFIG_DIR=$(basename $0)/../conf
+  test -d $CONFIG_DIR || die "Cannot find config directory - aborting"
 
-. $CONFIG_DIR/extract.conf
+  CONFIG="$CONFIG_DIR/extract.conf"
+fi
+
+test -f $CONFIG || die "No $CONFIG extract config file found"
+
+. $CONFIG
 
 test -d "$EXTRACT_ROOT" || die "EXTRACT_ROOT '$EXTRACT_ROOT' not found or not a directory"
 
