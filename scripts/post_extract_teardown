@@ -12,6 +12,7 @@ die() {
 }
 
 ROOT=$1
+CONFIG=$2
 
 test -n "$ROOT" || die "usage: $(basename $0) <extract_root>"
 

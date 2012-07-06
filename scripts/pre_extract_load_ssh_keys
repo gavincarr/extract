@@ -8,7 +8,8 @@ die() {
   exit 99
 }
 
-#ROOT=$1
+ROOT=$1
+CONFIG=$2
 
 if [ -f ~/.ssh/id_?sa ]; then
   # Source any existing ~/.shag.$HOSTNAME file

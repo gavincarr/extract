@@ -73,7 +73,7 @@ chdir $root or die "Cannot chdir to extract root '$root': $!\n";
 run_scripts(
   type => 'pre_extract_setup',
   scripts => \@pre_extract_setup,
-  params  => [ $root ],
+  params  => [ $root, $conf_file ],
   config  => $config,
   verbose => $verbose,
   noop    => $noop,
@@ -103,7 +103,7 @@ for my $host (@hosts) {
   run_scripts(
     type => 'pre_extract_host',
     scripts => \@pre_extract_host,
-    params  => [ $root, $host, $files ],
+    params  => [ $root, $host, $files, $conf_file ],
     config  => $config,
     verbose => $verbose,
     noop    => $noop,
@@ -152,7 +152,7 @@ for my $host (@hosts) {
   run_scripts(
     type => 'post_extract_host',
     scripts => \@post_extract_host,
-    params  => [ $root, $host, $files ],
+    params  => [ $root, $host, $files, $conf_file ],
     config  => $config,
     verbose => $verbose,
     noop    => $noop,
@@ -163,7 +163,7 @@ for my $host (@hosts) {
 run_scripts(
   type => 'post_extract_teardown',
   scripts => \@post_extract_teardown,
-  params  => [ $root ],
+  params  => [ $root, $conf_file ],
   config  => $config,
   verbose => $verbose,
   noop    => $noop,
