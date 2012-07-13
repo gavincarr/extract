@@ -2,7 +2,7 @@
 
 use strict;
 use File::Basename;
-use Getopt::Std;
+use Getopt::Long qw(:config no_ignore_case bundling);
 use File::Spec;
 use File::Path;
 use File::Rsync;
@@ -17,14 +17,19 @@ sub usage {
   die "usage: $me [-v] [-n] [-c <config>] [-t <timeout_sec>] [<host1>] [<host2> ...]\n";
 }
 
-my %opts = ();
-getopts('h?c:nt:v', \%opts);
-my $conf_file = $opts{c};
-my $help = $opts{h} || $opts{'?'};
-my $noop = $opts{n};
-my $timeout = $opts{t} || 60;
-my $verbose = $opts{v};
+$|++;
 
+my $conf_file = '/etc/extract/extract.conf';
+my $timeout = 60;
+my $verbose = 0;
+my ($help, $noop);
+usage unless GetOptions(
+  'help|h|?'        => \$help,
+  'verbose|v+'      => \$verbose,
+  'noop|n'          => \$noop,
+  'timeout|t=i'     => \$timeout,
+  'config|c=s'      => \$conf_file,
+);
 usage if $help;
 
 my $config = Extract::Config->new( $conf_file );
