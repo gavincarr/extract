@@ -26,7 +26,7 @@ sub run_scripts
       next;
     }
     print "+ $type $script ...\n" if $args{verbose} or $args{noop};
-    my $params_list = join ' ', @$params;
+    my $params_list = join ' ', map { q(') . ($_||'') . q(') } @$params;
     my $out = qx($script $params_list) unless $args{noop};
     print $out if $out && $args{verbose};
   }
