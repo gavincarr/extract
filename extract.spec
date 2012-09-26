@@ -1,7 +1,7 @@
 
 Name: extract
 Summary: extract is a tool for periodically copying data from a remote machine
-Version: 0.7
+Version: 0.7.1
 Release: 1%{?org_tag}%{dist}
 Source: %{name}-%{version}.tar.gz
 License: GPL
@@ -50,6 +50,10 @@ cp -p scripts/* %{buildroot}%{_sysconfdir}/extract/scripts
 
 
 %changelog
+* Fri Jul 13 2012 Gavin Carr <gavin@openfusion.com.au> 0.7.1
+- Convert extract to use Getopt::Long, and set default conf_file.
+- Quote all script parameters.
+
 * Fri Jul 06 2012 Gavin Carr <gavin@openfusion.com.au> 0.7
 - Pass config file as second parameter to scripts (breaking change).
 
