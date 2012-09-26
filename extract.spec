@@ -1,14 +1,15 @@
 
 Name: extract
 Summary: extract is a tool for periodically copying data from a remote machine
-Version: 0.7.1
+Version: 0.7.2
 Release: 1%{?org_tag}%{dist}
 Source: %{name}-%{version}.tar.gz
-License: GPL
-URL: http://www.openfusion.com.au/labs/
+License: GPL3
+URL: https://github.com/gavincarr/extract/
 Group: Applications/File
 BuildRoot: %{_tmppath}/%{name}-%{version}
 BuildArch: noarch
+BuildRequires: /usr/bin/pod2man
 Requires: rsync
 
 %description
@@ -18,15 +19,17 @@ programs to e.g. archive it, place it under version control, do comparisons and
 checks on it, etc.
 
 %prep
-%setup
+%setup -q
 
 %build
-[ "%{buildroot}" != "/" ] && rm -rf %{buildroot}
 
 %install
+test "%{buildroot}" != "/" && rm -rf %{buildroot}
+
 mkdir -p %{buildroot}%{_bindir}
 mkdir -p %{buildroot}%{_sysconfdir}/extract/scripts
 mkdir -p %{buildroot}%{_sysconfdir}/cron.d
+mkdir -p %{buildroot}%{_mandir}/man1
 mkdir -p %{buildroot}%{perl_vendorlib}/Extract
 
 install bin/extract %{buildroot}%{_bindir}
@@ -37,19 +40,26 @@ cp -p conf/extract.conf.dist %{buildroot}%{_sysconfdir}/extract/extract.conf
 cp -p conf/cron.d/* %{buildroot}%{_sysconfdir}/cron.d
 cp -p scripts/* %{buildroot}%{_sysconfdir}/extract/scripts
 
+pod2man bin/extract > %{buildroot}%{_mandir}/man1/%{name}.1
+
 %clean
-[ "%{buildroot}" != "/" ] && rm -rf %{buildroot}
+test "%{buildroot}" != "/" && rm -rf %{buildroot}
 
 %files
 %defattr(-,root,root)
-%{_bindir}/*
-%{perl_vendorlib}/Extract/*
 %config(noreplace) %{_sysconfdir}/extract/*.conf
 %config(noreplace) %{_sysconfdir}/extract/scripts/*
 %config(noreplace) %{_sysconfdir}/cron.d/*
+%{perl_vendorlib}/Extract/*
+%{_bindir}/*
+%{_mandir}/man1/*
 
 
 %changelog
+* Wed Sep 26 2012 Gavin Carr <gavin@openfusion.com.au> 0.7.2
+- Add better perldocs.
+- Add man page generation to spec file.
+
 * Fri Jul 13 2012 Gavin Carr <gavin@openfusion.com.au> 0.7.1
 - Convert extract to use Getopt::Long, and set default conf_file.
 - Quote all script parameters.
