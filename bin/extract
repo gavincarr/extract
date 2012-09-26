@@ -185,12 +185,127 @@ into a set of local host trees
 
 =head1 SYNOPSIS
 
-    extract [-v] [-n] [-c <config_file>] [<host1> [<host2> ...]]
+    extract [-v] [-n] [-c <config_file>] [-t <timeout_secs>] [<host1> [<host2> ...]]
 
 =head1 DESCRIPTION
 
 extract is a utility to copy a set of files off one or more remote hosts
-into a set of local host trees. 
+into a set of local host trees. Implemented using rsync.
+
+It requires the list of files to extract to be available either locally,
+or on the remote machine. I typically use
+L<rpm-find-changes|http://ofn.me/rfc> to generate a list of files to
+extract on remote RedHat/CentOS machines.
+
+=head2 OPTIONS
+
+=over 4
+
+=item --config | -c <config_file>
+
+Config file. Default: C</etc/extract/extract.conf>.
+
+=item --timeout | -t <timeout_secs>
+
+Timeout period (in seconds) applicable to the actual extraction. Default: 60s.
+
+=item --verbose | -v
+
+Show verbose messages (may be repeated).
+
+=item --noop | -n
+
+Show what would be done, but don't actually do the extract.
+
+=back
+
+=head2 CONFIGURATION
+
+extract is configured via a shell-variable-style config file, which can
+be given on the commmand line with the C<-c> option, and defaults to
+C</etc/extract/extract.conf>.
+
+The following variables can be configured:
+
+=over 4
+
+=item EXTRACT_ROOT
+
+Location where extracted files are to be stored, in per-host trees.
+
+=item EXTRACT_HOSTS
+
+List of hosts (quoted, space separated) to extract files from.
+
+=item EXTRACT_HOST_CMD
+
+Alternative to EXTRACT_HOSTS: a command to execute which returns a list
+of (space-separated) hosts from which to extract files.
+
+=item EXTRACT_FILES_REMOTE
+
+Fully-qualified path on the remote machine containing the list of files
+to extract.
+
+=item EXTRACT_FILES_LOCAL
+
+Fully qualified path on the local machine containing the list of files
+to extract.
+
+=item EXTRACT_TREE
+
+Tree on the remote server which should be extracted in its entirety.
+
+=back
+
+=head3 HOOK SCRIPTS
+
+Extract also supports running arbitrary scripts before and after file
+extraction. It ships with example scripts to load ssh keys before
+extraction, and to commit extracted files to git or bzr repositories.
+
+Hook scripts can be bare names, in which case they are expected to be
+found in /etc/extract/scripts, or they can be fully qualified paths.
+Multiple scripts can be specified by making them comma-separated.
+
+Scripts can be written in any language you like. Return codes from
+scripts are ignored.
+
+=over 4
+
+=item PRE_EXTRACT_SETUP
+
+Script(s) to be run once at beginning of the extraction run.
+
+Scripts are passed two parameters: the EXTRACT_ROOT location; and the
+fully-qualified path to the extract.conf file.
+
+=item PRE_EXTRACT_HOST
+
+Script(s) to be run once per host, before the extract begins.
+
+Scripts are passed four parameters: the EXTRACT_ROOT location; the
+fully-qualified path to the extract.conf file; the hostname of the
+host we are extracting from; and the filename given in
+EXTRACT_FILES_REMOTE or EXTRACT_FILES_LOCAL.
+
+=item POST_EXTRACT_HOST
+
+Script(s) to be run once per host, after the extract has completed.
+
+Scripts are passed four parameters: the EXTRACT_ROOT location; the
+fully-qualified path to the extract.conf file; the hostname of the
+host we are extracting from; and the filename given in
+EXTRACT_FILES_REMOTE or EXTRACT_FILES_LOCAL.
+
+=item POST_EXTRACT_TEARDOWN
+
+Script(s) to be run once at the end of the extraction run.
+
+Scripts are passed two parameters: the EXTRACT_ROOT location; and the
+fully-qualified path to the extract.conf file.
+
+=back
 
 =head1 AUTHOR
 
@@ -198,7 +313,7 @@ Gavin Carr <gavin@openfusion.com.au>
 
 =head1 LICENCE
 
-Copyright 2007-2011, Gavin Carr.
+Copyright 2007-2012, Gavin Carr.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -214,4 +329,3 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 =cut
-
