@@ -3,11 +3,11 @@
 # top CHANGELOG.md entry, commit, tag. Does NOT push; that is left to the
 # operator.
 #
-# Usage: scripts/release.sh <version>     # e.g. scripts/release.sh 0.10.0
+# Usage: scripts/release.sh <version>     # e.g. scripts/release.sh 0.10.0 (or v0.10.0)
 #
 # Workflow:
 #   1. vim CHANGELOG.md                # add a "## [X.Y.Z] - YYYY-MM-DD" entry at the top
-#   2. scripts/release.sh X.Y.Z        # validates, commits, tags
+#   2. scripts/release.sh X.Y.Z        # validates, commits, tags (vX.Y.Z also accepted)
 #   3. git push origin <branch> vX.Y.Z # when ready
 #
 # The changelog is the structural gate: you cannot tag a version that has
@@ -16,11 +16,12 @@
 set -euo pipefail
 
 if [[ $# -ne 1 ]]; then
-    echo "usage: scripts/release.sh <version>   (e.g. 0.10.0)" >&2
+    echo "usage: scripts/release.sh <version>   (e.g. 0.10.0 or v0.10.0)" >&2
     exit 64
 fi
 
-VERSION="$1"
+# Accept "vX.Y.Z" as well as "X.Y.Z"; the tag always gets the "v".
+VERSION="${1#v}"
 TAG="v${VERSION}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." >/dev/null && pwd)"

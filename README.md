@@ -551,7 +551,7 @@ Releasing
 ---------
 
 1. Add a `## [X.Y.Z] - YYYY-MM-DD` entry at the top of `CHANGELOG.md`.
-2. Run `scripts/release.sh X.Y.Z` on the branch that tracks the release
+2. Run `scripts/release.sh X.Y.Z` (or `vX.Y.Z`) on the branch that tracks the release
    upstream. It checks that the version is semver, that the branch isn't
    behind its upstream, that the tree is clean apart from `CHANGELOG.md`
    and `internal/version/VERSION`, that the tag doesn't exist, that the

@@ -21,7 +21,7 @@ go test ./internal/extract/ -run TestRunNoop     # single test
 go vet ./... && gofmt -l .                       # gofmt -l should print nothing
 CGO_ENABLED=1 go test -race ./...                # -race needs cgo, which is off by default here
 bin/extract -c conf/extract.conf -n -vvv [host ...]   # dry run, shows the plan
-scripts/release.sh X.Y.Z                         # needs a top CHANGELOG.md entry for X.Y.Z; commits + tags, never pushes
+scripts/release.sh [v]X.Y.Z                      # needs a top CHANGELOG.md entry for X.Y.Z; commits + tags, never pushes
 ```
 
 The version lives only in `internal/version/VERSION` (embedded); every
