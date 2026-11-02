@@ -325,18 +325,23 @@ func TestPrintPlanProbe(t *testing.T) {
 	}
 }
 
+// globsHost is a glob host with user "u", so that lines using the host's
+// user@name can be told from ones using its bare name.
 func globsHost(n string, g *extract.GlobsResult) extract.HostResult {
 	h := okHost(n)
-	h.Probe = &proc.StepResult{Argv: []string{"ssh", "-o", "BatchMode=yes", n, "sh", "-c", "'echo hi'"}, Stdout: "/etc/a\n"}
+	h.Host.User = "u"
+	h.Probe = &proc.StepResult{Argv: []string{"ssh", "-o", "BatchMode=yes", "u@" + n, "sh", "-c", "'echo hi'"}, Stdout: "/etc/a\n"}
 	h.Globs = g
 	return h
 }
 
-const globsCmd = "ssh -o BatchMode=yes h1 sh -c ''\\''echo hi'\\'''"
+// globsCmd is how the list step of globsHost("h1") is shown: the 9-byte
+// script "'echo hi'" is replaced by a placeholder.
+const globsCmd = "ssh -o BatchMode=yes u@h1 sh -c <list script, 9 bytes>"
 
 func TestReportGlobsNoListAtVV(t *testing.T) {
 	r := &extract.Result{Hosts: []extract.HostResult{globsHost("h1", &extract.GlobsResult{NoList: true})}}
-	want := "h1: no files list found; using globs and tracked files only\n"
+	want := "u@h1: no files list found; using globs and tracked files only\n"
 	o, _ := run(r, 2)
 	contains(t, "v2", o, want)
 	o, _ = run(r, 1)
@@ -353,7 +358,7 @@ func TestReportGlobsNoListAtVV(t *testing.T) {
 func TestReportGlobsTraceSummary(t *testing.T) {
 	g := &extract.GlobsResult{Listed: 3, Globbed: 4, Tracked: 5, Missing: 1, Skipped: []string{"a", "b"}}
 	r := &extract.Result{Hosts: []extract.HostResult{globsHost("h1", g)}}
-	want := "h1: files list: 3 listed, 4 globbed, 5 tracked, 1 missing, 2 skipped\n"
+	want := "u@h1: files list: 3 listed, 4 globbed, 5 tracked, 1 missing, 2 skipped\n"
 	o, _ := run(r, 3)
 	contains(t, "v3", o, want)
 	if i, j := strings.Index(o, "+ ssh"), strings.Index(o, want); i < 0 || j < i {
@@ -405,7 +410,68 @@ func TestReportGlobsFailureShowsStderr(t *testing.T) {
 		t.Errorf("counts shown for failed host: %q", o)
 	}
 	_, e := run(&extract.Result{Hosts: []extract.HostResult{h}}, 0)
-	if want := "h1: files list script exited 255\n  out\n  ssh: refused\n"; e != want {
+	if want := "u@h1: files list script exited 255\n  out\n  ssh: refused\n"; e != want {
 		t.Errorf("stderr %q want %q", e, want)
+	}
+}
+
+func TestReportGlobsTraceScriptOnce(t *testing.T) {
+	g := &extract.GlobsResult{Globbed: 1}
+	plain := okHost("h3")
+	plain.Probe = &proc.StepResult{Argv: probeArgv("h3"), Stdout: "/b\n"}
+	plain.FilesFrom = "/b"
+	r := &extract.Result{Hosts: []extract.HostResult{globsHost("h1", g), plain, globsHost("h2", g)}}
+	o, _ := run(r, 3)
+	const script = "files list script: 'echo hi'\n"
+	if n := strings.Count(o, script); n != 1 {
+		t.Fatalf("script shown %d times, want 1:\n%s", n, o)
+	}
+	if strings.Count(o, "echo hi") != 1 {
+		t.Errorf("script shown in a traced command:\n%s", o)
+	}
+	first := "+ " + globsCmd + "\n  /etc/a\n"
+	if i, j := strings.Index(o, script), strings.Index(o, first); i < 0 || j < i {
+		t.Errorf("script not shown before the first list step:\n%s", o)
+	}
+	contains(t, "v3", o, "+ "+strings.Replace(globsCmd, "u@h1", "u@h2", 1)+"\n",
+		"+ "+strings.Replace(probeCmd, " h1 ", " h3 ", 1)+"\n  /b\n") // the 0.9.0 probe keeps its full command
+	o, _ = run(r, 2)
+	if strings.Contains(o, "files list script") {
+		t.Errorf("v2 shows the script: %q", o)
+	}
+}
+
+// manifestFailedHost is a glob host whose manifest could not be read, so
+// the list step never ran: Globs is failed and Probe is nil.
+func manifestFailedHost() extract.HostResult {
+	args := []string{"/root", "/cfg", "h1", ""}
+	return extract.HostResult{Host: extract.Host{User: "u", Name: "h1"}, Status: extract.StatusFailed,
+		Error:     "cannot read manifest: read /root/.extract-state/h1.files: is a directory",
+		Globs:     &extract.GlobsResult{Failed: true},
+		PreHooks:  []extract.HookResult{{Stage: "pre_extract_host", Path: "/s/pre", Args: args}},
+		PostHooks: []extract.HookResult{{Stage: "post_extract_host", Path: "/s/post", Args: args}}}
+}
+
+func TestPlanGlobsManifestUnreadable(t *testing.T) {
+	var b bytes.Buffer
+	PrintPlan(&b, &extract.Result{Noop: true, Hosts: []extract.HostResult{manifestFailedHost(), globsHost("h2", &extract.GlobsResult{})}})
+	want := "built files list: u@h1 (failed: cannot read manifest)\n" +
+		"built files list: " + strings.Replace(globsCmd, "u@h1", "u@h2", 1) + " -> 0 listed, 0 globbed, 0 tracked, 0 missing, 0 skipped\n" +
+		"would rsync: " + shellJoin(rsyncArgv) + "\n"
+	if b.String() != want {
+		t.Errorf("got\n%s\nwant\n%s", b.String(), want)
+	}
+}
+
+func TestReportGlobsManifestUnreadable(t *testing.T) {
+	r := &extract.Result{Hosts: []extract.HostResult{manifestFailedHost()}}
+	for v := range 4 {
+		o, e := run(r, v)
+		if want := "u@h1: cannot read manifest: read /root/.extract-state/h1.files: is a directory\n"; e != want {
+			t.Errorf("v%d: stderr %q want %q", v, e, want)
+		}
+		if strings.Contains(o, "files list") {
+			t.Errorf("v%d: stdout %q", v, o)
+		}
 	}
 }

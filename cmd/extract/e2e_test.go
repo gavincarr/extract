@@ -476,11 +476,18 @@ func TestE2EGlobsRealRsync(t *testing.T) {
 		}
 	}
 
-	// -n builds the list and shows the plan, but changes nothing.
+	// -n builds the list and shows the plan, but changes nothing. The plan
+	// shows the list step without its script; -vvv shows that once.
 	code, out, errs = runCLI("-c", conf, "-n")
-	if code != 0 || errs != "" || !strings.Contains(out, "built files list:") ||
-		!strings.Contains(out, "--delete-missing-args") {
+	if code != 0 || errs != "" ||
+		!regexp.MustCompile(`(?m)^built files list: ssh -o BatchMode=yes localhost sh -c <list script, \d+ bytes> -> 0 listed, 2 globbed, 2 tracked, 0 missing, 0 skipped$`).MatchString(out) ||
+		strings.Contains(out, "chk() {") || !strings.Contains(out, "--delete-missing-args") {
 		t.Fatalf("noop: code=%d stdout=%q stderr=%q", code, out, errs)
+	}
+	code, out, errs = runCLI("-c", conf, "-n", "-vvv")
+	if code != 0 || errs != "" || strings.Count(out, "files list script: 'nl=") != 1 ||
+		strings.Count(out, "chk() {") != 1 || !strings.Contains(out, "+ ssh -o BatchMode=yes localhost sh -c <list script, ") {
+		t.Fatalf("noop -vvv: code=%d stdout=%q stderr=%q", code, out, errs)
 	}
 
 	// Remove the key, and a tracked file together with its directory.
@@ -560,5 +567,28 @@ func TestE2EGlobsCRNameRealRsync(t *testing.T) {
 	m, err := os.ReadFile(filepath.Join(root, ".extract-state", "localhost.files"))
 	if err != nil || strings.ContainsAny(string(m), "\r") {
 		t.Errorf("manifest %q, %v", m, err)
+	}
+}
+
+func TestE2EGlobsManifestUnreadable(t *testing.T) {
+	f := testutil.NewFakeRsync(t)
+	s := testutil.NewFakeSSH(t)
+	s.SetPasswd(t, "")
+	root := rootDir(t)
+	if err := os.MkdirAll(filepath.Join(root, ".extract-state", "h1.files"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	hooks := t.TempDir()
+	hook := testutil.WriteHook(t, hooks, "post", "exit 0")
+	conf := testutil.WriteFile(t, t.TempDir(), "extract.conf",
+		"EXTRACT_ROOT="+root+"\nEXTRACT_HOSTS=\"h1 h2\"\nEXTRACT_FILES_GLOBS=\"~/.ssh/*\"\nPOST_EXTRACT_HOST="+hook+"\n")
+	code, out, errs := runCLI("-c", conf, "-n")
+	if code != 1 || !strings.HasPrefix(out, "built files list: h1 (failed: cannot read manifest)\nbuilt files list: ssh ") ||
+		strings.Count(out, "would run post_extract_host:") != 1 ||
+		!strings.HasPrefix(errs, "h1: cannot read manifest: ") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errs)
+	}
+	if calls := f.Calls(); len(calls) != 1 || calls[0].Argv[len(calls[0].Argv)-1] != "h2" {
+		t.Errorf("rsync calls %+v", calls)
 	}
 }

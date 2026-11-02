@@ -1032,8 +1032,17 @@ func TestRunGlobsManifestReadError(t *testing.T) {
 	if n := len(e.ssh.Calls()); n != 0 {
 		t.Errorf("ssh calls = %d", n)
 	}
-	if h.Rsync != nil || h.Probe != nil || h.ProbeFailed() || len(h.PreHooks) != 1 || h.PreHooks[0].Step != nil {
-		t.Errorf("Rsync %v Probe %v PreHooks %+v", h.Rsync, h.Probe, h.PreHooks)
+	// The list step never ran, so Probe is nil, but Globs records the
+	// failure: nothing else ran for the host.
+	if h.Rsync != nil || h.Probe != nil || h.Globs == nil || !h.Globs.Failed || !h.ProbeFailed() ||
+		len(h.PreHooks) != 1 || h.PreHooks[0].Step != nil {
+		t.Errorf("Rsync %v Probe %v Globs %+v PreHooks %+v", h.Rsync, h.Probe, h.Globs, h.PreHooks)
+	}
+
+	// Under noop too.
+	h = Run(e.cfg, hosts("h1"), Options{Noop: true}).Hosts[0]
+	if h.Status != StatusFailed || h.Probe != nil || h.Globs == nil || !h.Globs.Failed || !h.ProbeFailed() {
+		t.Errorf("noop: status %v Probe %v Globs %+v", h.Status, h.Probe, h.Globs)
 	}
 }
 

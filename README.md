@@ -116,10 +116,13 @@ needed to get the host list, and so is the read-only files-list probe
 (see `EXTRACT_FILES_REMOTE`), so the plan shows each host's chosen list
 in a `checked files lists: ... -> <path>` line and in its rsync
 `--files-from`. With file globs the read-only list step runs instead,
-and the plan shows it as `built files list: <ssh command> -> N listed,
-N globbed, N tracked, N missing, N skipped` (or `(failed)`), any
+and the plan shows it as `built files list: ssh -o BatchMode=yes <host>
+sh -c <list script, N bytes> -> N listed, N globbed, N tracked, N
+missing, N skipped` (or `(failed)`, or `<host> (failed: cannot read
+manifest)` when the step couldn't be run), any
 `would delete local copy: <path>` lines, then the `would rsync` line
-with `--delete-missing-args`. Nothing is deleted and no manifest is
+with `--delete-missing-args`. The script itself is long, so it is left
+out of that line; `-n -vvv` shows it once. Nothing is deleted and no manifest is
 written under `-n`.
 
 
@@ -422,7 +425,8 @@ What a failure does:
 |---|---|
 | Setup hook fails | Run aborts: no hosts, no teardown. Exit 1. |
 | Files-list probe fails or finds no non-empty list (several `EXTRACT_FILES_REMOTE` paths) | Host marked failed (timed out, if it exceeded `-t`); its pre-host hooks, rsync and post-host hooks are skipped, and the ssh error output is shown. |
-| Globs list step fails (the manifest can't be read; ssh fails, times out or is interrupted; or the output has no end marker) | Host marked failed (timed out, if it exceeded `-t`); its pre-host hooks, rsync and post-host hooks are skipped, and the ssh error output is shown. Finding no `EXTRACT_FILES_REMOTE` list is not a failure. |
+| Globs manifest can't be read (`cannot read manifest: <error>`) | Host marked failed; the list step isn't run, and its pre-host hooks, rsync and post-host hooks are skipped. |
+| Globs list step fails (ssh fails, times out or is interrupted; the remote has no working `readlink -f`; or the output has no end marker) | Host marked failed (timed out, if it exceeded `-t`); its pre-host hooks, rsync and post-host hooks are skipped, and the step's output (ssh errors, or the remote script's) is shown. Finding no `EXTRACT_FILES_REMOTE` list is not a failure. |
 | Pre-host hook fails | Host marked failed; its rsync and post-host hooks are skipped. |
 | rsync exits 24 (files vanished) | Host is OK, with a warning shown at `-v` and above. |
 | rsync exits non-zero otherwise (including 23) | Host marked failed. Post-host hooks still run. With globs, the manifest is not updated. |
@@ -451,7 +455,7 @@ data"), which goes to stderr at every level.
 | default | nothing | each failed or timed-out host or failed hook, with its error and rsync, probe or list step stderr, or hook output |
 | `-v` | one summary line, e.g. `42 hosts ok`, plus host warnings such as `h1: warning: skipped symlink /home/bob/.ssh/config` | summary line (`40 ok, 1 failed, 1 timed out`) plus each failure itemised, plus host warnings as for all OK |
 | `-vv` | adds one line per successful host, with duration, and `<host>: no files list found; using globs and tracked files only` for a globs host with no `EXTRACT_FILES_REMOTE` list | same |
-| `-vvv` | adds rsync, files-list probe and list step commands, their output, hook output for successful steps, and per globs host `<host>: files list: N listed, N globbed, N tracked, N missing, N skipped` | same |
+| `-vvv` | adds rsync, files-list probe and list step commands, their output, hook output for successful steps, and per globs host `<host>: files list: N listed, N globbed, N tracked, N missing, N skipped`. The list step is shown as `ssh -o BatchMode=yes <host> sh -c <list script, N bytes>`, with the script itself shown once, as `files list script: '<script>'`, before the first globs host | same |
 
 At `-vvv` rsync runs with `--verbose` instead of `--quiet`.
 

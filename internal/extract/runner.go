@@ -60,9 +60,9 @@ type HostResult struct {
 	PreHooks  []HookResult
 	PostHooks []HookResult
 	// Globs is the outcome of building the files list from
-	// EXTRACT_FILES_GLOBS. It is nil when globs are not used, and also when
-	// the list step was never run (the manifest could not be read); when it
-	// is set, Probe is the list step.
+	// EXTRACT_FILES_GLOBS, nil when globs are not used. Probe is then the
+	// list step, or nil if it was never run because the manifest could not
+	// be read (Globs.Failed is set).
 	Globs    *GlobsResult
 	Duration time.Duration
 }
@@ -333,6 +333,7 @@ func runHooks(ctx context.Context, cfg *config.Config, stage string, paths, args
 func buildList(ctx context.Context, cfg *config.Config, h Host, opts Options, hr *HostResult) (*ListResult, []string, Status, string) {
 	manifest, err := ReadManifest(ManifestPath(cfg.Root, h.Name))
 	if err != nil {
+		hr.Globs = &GlobsResult{Failed: true}
 		return nil, nil, StatusFailed, fmt.Sprintf("cannot read manifest: %v", err)
 	}
 	var stdin strings.Builder

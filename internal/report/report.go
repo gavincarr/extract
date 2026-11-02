@@ -23,22 +23,35 @@ func Report(log *slog.Logger, r *extract.Result) {
 		}
 	}
 
-	// Trace: every step that ran, in execution order.
-	trace := func(s *proc.StepResult) {
-		if s == nil {
-			return
-		}
-		say(LevelTrace, "+ %s", shellJoin(s.Argv))
+	// Trace: every step that ran, in execution order. A glob host's list
+	// step is shown without its long script, which is shown once instead,
+	// before the first host that ran it.
+	traceCmd := func(cmd string, s *proc.StepResult) {
+		say(LevelTrace, "+ %s", cmd)
 		out(LevelTrace, s.Stdout)
 		out(LevelTrace, s.Stderr)
+	}
+	trace := func(s *proc.StepResult) {
+		if s != nil {
+			traceCmd(shellJoin(s.Argv), s)
+		}
 	}
 	for _, h := range r.SetupHooks {
 		trace(h.Step)
 	}
+	var script string // the list script last shown
 	for _, h := range r.Hosts {
-		trace(h.Probe)
+		if h.Globs != nil && h.Probe != nil && len(h.Probe.Argv) > 0 {
+			if s := h.Probe.Argv[len(h.Probe.Argv)-1]; s != script {
+				say(LevelTrace, "files list script: %s", s)
+				script = s
+			}
+			traceCmd(listStepCmd(h.Probe.Argv), h.Probe)
+		} else {
+			trace(h.Probe)
+		}
 		if h.Globs != nil && !h.Globs.Failed {
-			say(LevelTrace, "%s: files list: %s", h.Host.Name, globsCounts(h.Globs))
+			say(LevelTrace, "%s: files list: %s", h.Host, globsCounts(h.Globs))
 		}
 		for _, p := range h.PreHooks {
 			trace(p.Step)
@@ -79,9 +92,12 @@ func Report(log *slog.Logger, r *extract.Result) {
 		}
 		say(slog.LevelError, "%s: %s", h.Host, h.Error)
 		if h.ProbeFailed() {
-			// Nothing else ran for this host.
-			out(slog.LevelError, h.Probe.Stdout)
-			out(slog.LevelError, h.Probe.Stderr)
+			// Nothing else ran for this host. With globs the list step may
+			// not have run either (the manifest could not be read).
+			if h.Probe != nil {
+				out(slog.LevelError, h.Probe.Stdout)
+				out(slog.LevelError, h.Probe.Stderr)
+			}
 			continue
 		}
 		if h.Rsync != nil && h.Rsync.Failed() && h.Rsync.ExitCode != 24 {
@@ -120,7 +136,7 @@ func Report(log *slog.Logger, r *extract.Result) {
 	// Per-host success lines.
 	for _, h := range r.Hosts {
 		if h.Globs != nil && h.Globs.NoList {
-			say(slog.LevelDebug, "%s: no files list found; using globs and tracked files only", h.Host.Name)
+			say(slog.LevelDebug, "%s: no files list found; using globs and tracked files only", h.Host)
 		}
 		if h.Status == extract.StatusOK {
 			say(slog.LevelDebug, "%s ok (%s)", h.Host, h.Duration.Round(100*time.Millisecond))
@@ -175,8 +191,8 @@ func indent(s string) []string {
 }
 
 // PrintPlan writes the noop plan to w, in execution order. A files list
-// probe really ran, so its line gives the path it chose; a host whose probe
-// failed gets only that line.
+// probe or list step really ran, so its line gives the outcome; a host
+// whose probe or list step failed gets only that line.
 func PrintPlan(w io.Writer, r *extract.Result) {
 	hooks := func(hs []extract.HookResult) {
 		for _, h := range hs {
@@ -186,11 +202,16 @@ func PrintPlan(w io.Writer, r *extract.Result) {
 	hooks(r.SetupHooks)
 	for _, h := range r.Hosts {
 		if h.Globs != nil {
-			if h.ProbeFailed() {
-				fmt.Fprintf(w, "built files list: %s (failed)\n", shellJoin(h.Probe.Argv))
+			switch {
+			case h.Probe == nil:
+				// The list step never ran; nothing else would either.
+				fmt.Fprintf(w, "built files list: %s (failed: cannot read manifest)\n", h.Host)
+				continue
+			case h.ProbeFailed():
+				fmt.Fprintf(w, "built files list: %s (failed)\n", listStepCmd(h.Probe.Argv))
 				continue
 			}
-			fmt.Fprintf(w, "built files list: %s -> %s\n", shellJoin(h.Probe.Argv), globsCounts(h.Globs))
+			fmt.Fprintf(w, "built files list: %s -> %s\n", listStepCmd(h.Probe.Argv), globsCounts(h.Globs))
 		} else if h.Probe != nil {
 			if h.ProbeFailed() {
 				// Nothing else would run for this host.
@@ -211,6 +232,16 @@ func PrintPlan(w io.Writer, r *extract.Result) {
 		hooks(h.PostHooks)
 	}
 	hooks(r.TeardownHooks)
+}
+
+// listStepCmd shows a glob host's list step with its last argument, the
+// script, as a placeholder giving its size.
+func listStepCmd(argv []string) string {
+	if len(argv) == 0 {
+		return ""
+	}
+	n := len(argv) - 1
+	return fmt.Sprintf("%s <list script, %d bytes>", shellJoin(argv[:n]), len(argv[n]))
 }
 
 // globsCounts summarises how a glob host's files list was built.
