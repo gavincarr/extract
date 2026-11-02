@@ -30,10 +30,11 @@ const (
 // HookResult records one hook invocation. Step is nil when the hook was not
 // run (skipped after an earlier failure, or under noop).
 type HookResult struct {
-	Stage string
-	Path  string
-	Args  []string
-	Step  *proc.StepResult
+	Stage   string
+	Path    string
+	Args    []string
+	Step    *proc.StepResult
+	Timeout time.Duration // the configured hook timeout (0 = none)
 }
 
 // Failed reports whether the hook ran and did not succeed.
@@ -116,8 +117,8 @@ func runHost(cfg *config.Config, h Host, opts Options) (hr HostResult) {
 
 	hookArgs := []string{cfg.Root, cfg.Path, h.Name, cfg.FilesArg()}
 	skip := func() {
-		hr.PreHooks = skipHooks(stagePreHost, cfg.PreHost, hookArgs)
-		hr.PostHooks = skipHooks(stagePostHost, cfg.PostHost, hookArgs)
+		hr.PreHooks = skipHooks(stagePreHost, cfg.PreHost, hookArgs, cfg.HookTimeout)
+		hr.PostHooks = skipHooks(stagePostHost, cfg.PostHost, hookArgs, cfg.HookTimeout)
 	}
 	fail := func(status Status, msg string) {
 		hr.Status = status
@@ -138,7 +139,7 @@ func runHost(cfg *config.Config, h Host, opts Options) (hr HostResult) {
 	var msg string
 	hr.PreHooks, msg = runHooks(cfg, stagePreHost, cfg.PreHost, hookArgs, opts.Noop)
 	if msg != "" {
-		hr.PostHooks = skipHooks(stagePostHost, cfg.PostHost, hookArgs)
+		hr.PostHooks = skipHooks(stagePostHost, cfg.PostHost, hookArgs, cfg.HookTimeout)
 		fail(StatusFailed, msg)
 		return hr
 	}
@@ -150,7 +151,7 @@ func runHost(cfg *config.Config, h Host, opts Options) (hr HostResult) {
 		fail(StatusFailed, fmt.Sprintf("rsync failed to start: %v", step.Err))
 	case step.TimedOut:
 		fail(StatusTimedOut, fmt.Sprintf("rsync timed out after %s", opts.Timeout))
-		hr.PostHooks = skipHooks(stagePostHost, cfg.PostHost, hookArgs)
+		hr.PostHooks = skipHooks(stagePostHost, cfg.PostHost, hookArgs, cfg.HookTimeout)
 		return hr
 	case step.ExitCode == 24:
 		hr.Warnings = append(hr.Warnings, "some files vanished during transfer (rsync exit 24)")
@@ -167,10 +168,10 @@ func runHost(cfg *config.Config, h Host, opts Options) (hr HostResult) {
 }
 
 // skipHooks lists hooks that were not run.
-func skipHooks(stage string, paths, args []string) []HookResult {
+func skipHooks(stage string, paths, args []string, timeout time.Duration) []HookResult {
 	var out []HookResult
 	for _, p := range paths {
-		out = append(out, HookResult{Stage: stage, Path: p, Args: args})
+		out = append(out, HookResult{Stage: stage, Path: p, Args: args, Timeout: timeout})
 	}
 	return out
 }
@@ -179,7 +180,7 @@ func skipHooks(stage string, paths, args []string) []HookResult {
 // listed with a nil Step. Under noop nothing is run. The returned string is
 // the error description of the first failure, or "".
 func runHooks(cfg *config.Config, stage string, paths, args []string, noop bool) ([]HookResult, string) {
-	out := skipHooks(stage, paths, args)
+	out := skipHooks(stage, paths, args, cfg.HookTimeout)
 	if noop {
 		return out, ""
 	}

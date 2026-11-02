@@ -118,6 +118,10 @@ func TestReportAborted(t *testing.T) {
 		t.Errorf("stdout: %q", o)
 	}
 	contains(t, "stderr", e, "pre_extract_setup hook /s/keys exited 99\n  boom\n", "run aborted: no hosts extracted\n")
+	o, e2 := run(r, 1)
+	if o != "" || e2 != e {
+		t.Errorf("v1: %q %q", o, e2)
+	}
 }
 
 func TestReportTeardownFailure(t *testing.T) {
@@ -128,6 +132,27 @@ func TestReportTeardownFailure(t *testing.T) {
 		t.Errorf("stdout: %q", o)
 	}
 	contains(t, "stderr", e, "post_extract_teardown hook /s/t exited 1\n")
+}
+
+func TestReportTeardownFailureSummary(t *testing.T) {
+	r := &extract.Result{Hosts: []extract.HostResult{okHost("h1"), okHost("h2")},
+		TeardownHooks: []extract.HookResult{{Stage: "post_extract_teardown", Path: "/s/t",
+			Step: &proc.StepResult{ExitCode: 1}}}}
+	o, e := run(r, 1)
+	if o != "2 ok, 0 failed, 0 timed out\n" {
+		t.Errorf("stdout: %q", o)
+	}
+	contains(t, "stderr", e, "post_extract_teardown hook /s/t exited 1\n")
+}
+
+func TestReportTeardownTimeout(t *testing.T) {
+	r := &extract.Result{TeardownHooks: []extract.HookResult{{Stage: "post_extract_teardown", Path: "/s/td",
+		Timeout: 10 * time.Minute, Step: &proc.StepResult{ExitCode: -1, TimedOut: true}}}}
+	o, e := run(r, 0)
+	if o != "" {
+		t.Errorf("stdout: %q", o)
+	}
+	contains(t, "stderr", e, "post_extract_teardown hook /s/td timed out after 10m0s\n")
 }
 
 func TestPrintPlan(t *testing.T) {

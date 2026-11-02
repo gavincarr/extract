@@ -51,7 +51,7 @@ func Report(log *slog.Logger, r *extract.Result) {
 	hookFailure := func(hs []extract.HookResult) {
 		for _, h := range hs {
 			if h.Failed() {
-				say(slog.LevelError, "%s hook %s %s", h.Stage, h.Path, stepProblem(h.Step))
+				say(slog.LevelError, "%s hook %s %s", h.Stage, h.Path, stepProblem(h.Step, h.Timeout))
 				out(slog.LevelError, h.Step.Stdout)
 				out(slog.LevelError, h.Step.Stderr)
 			}
@@ -73,10 +73,8 @@ func Report(log *slog.Logger, r *extract.Result) {
 			failed++
 		}
 		say(slog.LevelError, "%s: %s", h.Host, h.Error)
-		if strings.HasPrefix(h.Error, "rsync ") {
-			if h.Rsync != nil {
-				out(slog.LevelError, h.Rsync.Stderr)
-			}
+		if h.Rsync != nil && h.Rsync.Failed() && h.Rsync.ExitCode != 24 {
+			out(slog.LevelError, h.Rsync.Stderr)
 			continue
 		}
 		for _, p := range append(append([]extract.HookResult{}, h.PreHooks...), h.PostHooks...) {
@@ -104,24 +102,27 @@ func Report(log *slog.Logger, r *extract.Result) {
 	}
 
 	// Summary.
-	if failed == 0 && timedOut == 0 {
+	switch {
+	case r.Aborted:
+		// The "run aborted" error line covers it.
+	case r.OK():
 		noun := "hosts"
 		if ok == 1 {
 			noun = "host"
 		}
 		say(slog.LevelInfo, "%d %s ok", ok, noun)
-	} else {
+	default:
 		say(slog.LevelInfo, "%d ok, %d failed, %d timed out", ok, failed, timedOut)
 	}
 }
 
 // stepProblem describes why a failed hook step failed.
-func stepProblem(s *proc.StepResult) string {
+func stepProblem(s *proc.StepResult, timeout time.Duration) string {
 	switch {
 	case s.Err != nil:
 		return fmt.Sprintf("failed to start: %v", s.Err)
 	case s.TimedOut:
-		return "timed out"
+		return fmt.Sprintf("timed out after %s", timeout)
 	}
 	return fmt.Sprintf("exited %d", s.ExitCode)
 }

@@ -207,6 +207,9 @@ func TestRunHookTimeout(t *testing.T) {
 	if h.Status != StatusFailed || h.Error != "pre_extract_host hook pre timed out after 200ms" {
 		t.Errorf("%v %q", h.Status, h.Error)
 	}
+	if h.PreHooks[0].Timeout != 200*time.Millisecond {
+		t.Errorf("Timeout = %v", h.PreHooks[0].Timeout)
+	}
 }
 
 func TestRunSetupFails(t *testing.T) {
