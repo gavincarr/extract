@@ -73,7 +73,7 @@ type GlobsResult struct {
 	Failed                            bool     // the list step failed; nothing else ran
 	NoList                            bool     // remote lists configured, none non-empty
 	Listed, Globbed, Tracked, Missing int      // counts for -vvv and the plan
-	Skipped                           []string // L and X paths
+	Skipped                           []string // symlinks, and names with a newline or CR
 	Deleted                           []string // local copies removed for L paths (or, under noop, that would be)
 }
 
@@ -348,6 +348,7 @@ func buildList(ctx context.Context, cfg *config.Config, h Host, opts Options, hr
 	if msg != "" {
 		return nil, nil, status, msg
 	}
+	dropUnsafeNames(&lr)
 	lr.Symlinks = dedup(lr.Symlinks)
 	lr.Skipped = dedup(lr.Skipped)
 	g := hr.Globs
@@ -362,10 +363,39 @@ func buildList(ctx context.Context, cfg *config.Config, h Host, opts Options, hr
 		g.Skipped = append(g.Skipped, p)
 	}
 	for _, p := range lr.Skipped {
-		hr.Warnings = append(hr.Warnings, "skipped name containing a newline "+p)
+		hr.Warnings = append(hr.Warnings, "skipped name containing a newline or carriage return "+p)
 		g.Skipped = append(g.Skipped, p)
 	}
 	return &lr, manifest, StatusOK, ""
+}
+
+// unsafeName reports whether p holds a newline or a carriage return. rsync's
+// --files-from ends a line at either, so such a name would reach it as two
+// other paths, both likely missing remotely, and --delete-missing-args would
+// then delete their local namesakes (such as the host directory's .git).
+func unsafeName(p string) bool { return strings.ContainsAny(p, "\n\r") }
+
+// dropUnsafeNames moves every path in lr that unsafeName rejects into
+// lr.Skipped, with '?' for each newline and CR. The list script already
+// does this; this keeps such a name from reaching rsync or the manifest
+// whatever the remote printed.
+func dropUnsafeNames(lr *ListResult) {
+	keep := func(paths []string) []string {
+		var out []string
+		for _, p := range paths {
+			if unsafeName(p) {
+				lr.Skipped = append(lr.Skipped, strings.NewReplacer("\n", "?", "\r", "?").Replace(p))
+			} else {
+				out = append(out, p)
+			}
+		}
+		return out
+	}
+	lr.Listed = keep(lr.Listed)
+	lr.Globbed = keep(lr.Globbed)
+	lr.Tracked = keep(lr.Tracked)
+	lr.Missing = keep(lr.Missing)
+	lr.Symlinks = keep(lr.Symlinks)
 }
 
 // deleteSymlinkCopies removes the local copy, if any, of each glob match
@@ -491,8 +521,14 @@ func without(paths, drop []string) []string {
 }
 
 // writeListFile writes paths, one per line, to a new temp file outside
-// the host directory and returns its name. The caller removes it.
+// the host directory and returns its name. The caller removes it. A path
+// that unsafeName rejects is an error (buildList has already dropped them).
 func writeListFile(paths []string) (string, error) {
+	for _, p := range paths {
+		if unsafeName(p) {
+			return "", fmt.Errorf("path contains a newline or carriage return: %q", p)
+		}
+	}
 	f, err := os.CreateTemp("", "extract-files-*")
 	if err != nil {
 		return "", err

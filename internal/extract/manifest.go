@@ -2,6 +2,7 @@ package extract
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -38,8 +39,14 @@ func ReadManifest(path string) ([]string, error) {
 
 // WriteManifest atomically replaces the manifest at path with paths. It
 // creates the directory with mode 0700 if needed and writes a temp file
-// with mode 0600 in it, then renames that over path.
+// with mode 0600 in it, then renames that over path. A path holding a
+// newline or CR is an error, as it would not read back as one path.
 func WriteManifest(path string, paths []string) error {
+	for _, p := range paths {
+		if unsafeName(p) {
+			return fmt.Errorf("path contains a newline or carriage return: %q", p)
+		}
+	}
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err

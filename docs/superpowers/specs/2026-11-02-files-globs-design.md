@@ -233,7 +233,11 @@ handling, and also under `-n` (it only reads).
   `E` end sentinel.
 - **Paths containing a newline** can't be represented. If one is
   encountered (from a glob), don't list it, and emit it as a skipped
-  path. *(My call.)*
+  path. *(My call.)* The same goes for a **carriage return**, which
+  rsync's `--files-from` also treats as a line end: such a name would
+  reach rsync as two other paths, and `--delete-missing-args` would
+  delete their local namesakes (found in review: `~/.ssh/x\r.git`
+  deleted the host directory's `.git`).
 
 ### 2. Interpreting the result
 

@@ -18,7 +18,7 @@ type ListResult struct {
 	Tracked  []string // T: manifest paths that exist
 	Missing  []string // M: remote-list or manifest paths that don't exist
 	Symlinks []string // L: glob matches skipped as symlinks
-	Skipped  []string // X: glob matches with a newline, shown with '?' for it
+	Skipped  []string // X: names with a newline or CR, shown with '?' for those
 }
 
 // errListIncomplete is returned when the output lacks the end sentinel,
@@ -42,17 +42,22 @@ const (
 	// b holds '!' so that words containing it can be spelt without it. IFS
 	// is newline only, so unquoted expansions of patterns (which contain no
 	// whitespace) and of the newline-separated home list never word-split
-	// on spaces.
-	lsPrelude = `nl=$(printf "\nx"); nl=${nl%x}; cr=$(printf "\r"); tab=$(printf "\t"); b=$(printf "\041"); IFS=$nl; set +f; `
+	// on spaces. x NAME emits NAME as skipped, with '?' for each newline
+	// and CR: rsync's --files-from ends a line at either, so a name holding
+	// one would reach rsync as two other paths, which --delete-missing-args
+	// could then delete locally.
+	lsPrelude = `nl=$(printf "\nx"); nl=${nl%x}; cr=$(printf "\r"); tab=$(printf "\t"); b=$(printf "\041"); IFS=$nl; set +f; ` +
+		`x() { printf "X %s\n" "$(printf %s "$1" | tr "\n\r" "??")"; }; `
 
 	// Remote list: the first candidate that is non-empty (test -s, as the
 	// 0.9.0 probe). Lines follow rsync --files-from: a trailing CR is
 	// stripped, blank and #/; comment lines are skipped; the last line may
-	// lack a newline. Entries are relative to /, as rsync's source is /.
+	// lack a newline. A line still holding a CR is emitted as skipped.
+	// Entries are relative to /, as rsync's source is /.
 	lsRemoteHead = `f=; for c in `
 	lsRemoteTail = `; do if test -s "$c"; then f=$c; break; fi; done; ` +
 		`if test -n "$f"; then printf "R %s\n" "$f"; ` +
-		`while IFS= read -r p || test -n "$p"; do p=${p%"$cr"}; case $p in ""|"#"*|";"*) continue;; esac; ` +
+		`while IFS= read -r p || test -n "$p"; do p=${p%"$cr"}; case $p in ""|"#"*|";"*) continue;; *"$cr"*) x "$p"; continue;; esac; ` +
 		`if test -e "/${p#/}"; then printf "F %s\n" "$p"; else printf "M %s\n" "$p"; fi; done < "$f"; ` +
 		`else printf "N\n"; fi; `
 
@@ -67,7 +72,7 @@ const (
 	// rest, only regular files are listed. ld/ds cache the directory check
 	// for consecutive matches in one directory; callers reset ld per base.
 	lsChk = `chk() { ` +
-		`case $1 in *"$nl"*) printf "X %s\n" "$(printf %s "$1" | tr "\n" "?")"; return;; esac; ` +
+		`case $1 in *"$nl"*|*"$cr"*) x "$1"; return;; esac; ` +
 		`if test -L "$1" || test -e "$1"; then :; else return; fi; ` +
 		`d=${1%/*}; test -n "$d" || d=/; ` +
 		`if test "$d" = "$ld"; then :; else ld=$d; e=${d#"$2"}; e=$3$e; ` +
@@ -94,8 +99,11 @@ const (
 		`ld=; for p in `
 	lsHomeTail = `; do for m in "$h"/$p; do chk "$m" "$h" "$rh"; done; done; done; set +f; `
 
-	// Manifest on stdin: T if the path exists, else M. Then the sentinel.
-	lsManifest = `while IFS= read -r p || test -n "$p"; do case $p in "") continue;; esac; ` +
+	// Manifest on stdin: T if the path exists, else M. extract never writes
+	// a CR to it, but one written before that rule is emitted as skipped
+	// (not stripped, which would make it some other path). Then the
+	// sentinel.
+	lsManifest = `while IFS= read -r p || test -n "$p"; do case $p in "") continue;; *"$cr"*) x "$p"; continue;; esac; ` +
 		`if test -e "$p"; then printf "T %s\n" "$p"; else printf "M %s\n" "$p"; fi; done; ` +
 		`printf "E\n"; exit 0`
 )

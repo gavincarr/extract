@@ -51,7 +51,12 @@ CGO_ENABLED=1 go test -race ./...                # -race needs cgo, which is off
   `listscript.go` builds the one-line POSIX sh script sent as
   `ssh ... sh -c '<script>'` (no newline, no `!`; must run under dash and
   bash). It replaces the 0.9.0 probe for that host, reads the manifest
-  on stdin and ends its output with an `E` sentinel. `manifest.go` keeps
+  on stdin and ends its output with an `E` sentinel. No path holding a
+  newline or CR may reach the rsync list or the manifest: rsync's
+  `--files-from` ends a line at either, so the name would split into two
+  paths that `--delete-missing-args` deletes locally (even the host
+  directory's `.git`). The script emits such names as `X` (skipped) and
+  `dropUnsafeNames` drops any that get through. `manifest.go` keeps
   `$EXTRACT_ROOT/.extract-state/<host>.files` (dir `0700`, file `0600`,
   written atomically): the paths extract has extracted, so later runs
   list them and `--delete-missing-args` deletes copies of files gone

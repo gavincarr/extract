@@ -304,6 +304,43 @@ func TestListNewlineName(t *testing.T) {
 	})
 }
 
+// rsync's --files-from ends a line at a CR as well as a newline, so a CR
+// name must be skipped like a newline one, never emitted as a match.
+func TestListCRName(t *testing.T) {
+	eachShell(t, func(t *testing.T) {
+		f := testutil.NewFakeSSH(t)
+		a := t.TempDir()
+		ok := mkfile(t, filepath.Join(a, ".ssh", "ok"))
+		mkfile(t, filepath.Join(a, ".ssh", "x\r.git"))
+		mkfile(t, filepath.Join(a, ".ssh", "y\r"))
+		mkfile(t, filepath.Join(a, ".ssh", "n\r\nz"))
+		f.SetPasswd(t, passwd(a))
+		r := runList(t, nil, []string{"~/.ssh/*", a + "/.ssh/x*"}, "")
+		sameSet(t, "Globbed", r.Globbed, []string{ok})
+		sameSet(t, "Skipped", r.Skipped, []string{
+			a + "/.ssh/x?.git", a + "/.ssh/y?", a + "/.ssh/n??z", // ~/ pattern
+			a + "/.ssh/x?.git", // absolute pattern
+		})
+	})
+}
+
+// Remote-list and manifest lines lose one trailing CR (remote list only);
+// a line that still holds one is skipped, not tested or listed.
+func TestListCRInRemoteListAndManifest(t *testing.T) {
+	eachShell(t, func(t *testing.T) {
+		testutil.NewFakeSSH(t)
+		base := t.TempDir()
+		x := mkfile(t, filepath.Join(base, "x"))
+		mkfile(t, filepath.Join(base, "a\rb"))
+		list := testutil.WriteFile(t, base, "list", x+"\r\n"+base+"/a\rb\r\n"+base+"/c\rd\n")
+		r := runList(t, []string{list}, nil, x+"\n"+base+"/a\rb\n"+x+"\r\n")
+		sameSet(t, "Listed", r.Listed, []string{x})
+		sameSet(t, "Tracked", r.Tracked, []string{x})
+		sameSet(t, "Missing", r.Missing, nil)
+		sameSet(t, "Skipped", r.Skipped, []string{base + "/a?b", base + "/c?d", base + "/a?b", x + "?"})
+	})
+}
+
 func TestListQuotingAndBang(t *testing.T) {
 	eachShell(t, func(t *testing.T) {
 		testutil.NewFakeSSH(t)

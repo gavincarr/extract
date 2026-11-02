@@ -229,8 +229,14 @@ are not extracted, with these rules:
   `EXTRACT_FILES_REMOTE` list keep `--copy-links` behaviour, so a path
   that is both in that list and a symlinked glob match is still
   extracted.
-- A match whose name contains a newline can't be listed, and is skipped
-  with a warning.
+- A match whose name contains a newline or carriage return can't be
+  listed, and is skipped with a warning,
+  `<host>: warning: skipped name containing a newline or carriage
+  return <path>`, with `?` shown for those characters. rsync's
+  `--files-from` ends a line at either, so such a name would otherwise
+  reach rsync as two other paths, and `--delete-missing-args` could
+  delete their local namesakes. The same applies to such a line in the
+  `EXTRACT_FILES_REMOTE` list (after one trailing CR is stripped).
 
 ### What happens per host
 

@@ -1036,3 +1036,64 @@ func TestRunGlobsManifestReadError(t *testing.T) {
 		t.Errorf("Rsync %v Probe %v PreHooks %+v", h.Rsync, h.Probe, h.PreHooks)
 	}
 }
+
+func TestRunGlobsCRNameNeverReachesRsync(t *testing.T) {
+	e, a := newGlobsEnv(t)
+	kh := mkfile(t, filepath.Join(a, ".ssh", "known_hosts"))
+	mkfile(t, filepath.Join(a, ".ssh", "x\r.git"))
+	h := Run(e.cfg, hosts("h1"), Options{}).Hosts[0]
+	if h.Status != StatusOK {
+		t.Fatalf("status %v err %q", h.Status, h.Error)
+	}
+	checkList(t, "rsync list", e.fake.List("h1"), []string{kh})
+	checkList(t, "manifest", e.manifest(t, "h1"), []string{kh})
+	skipped := a + "/.ssh/x?.git"
+	checkList(t, "Skipped", h.Globs.Skipped, []string{skipped})
+	checkList(t, "warnings", h.Warnings, []string{"skipped name containing a newline or carriage return " + skipped})
+	if g := h.Globs; g.Globbed != 1 {
+		t.Errorf("Globbed = %d, want 1", g.Globbed)
+	}
+}
+
+// The Go side drops CR names itself, whatever the remote printed.
+func TestRunGlobsCRNameFromRemoteOutputDropped(t *testing.T) {
+	e, _ := newGlobsEnv(t)
+	e.ssh.SetHost("h1", 0, "F /etc/a\rb\nF /etc/ok\nG /h/x\r.git\nG /h/k\nT /h/t\r\nM /h/m\rn\nL /h/l\r\nE\n", "", 0)
+	h := Run(e.cfg, hosts("h1"), Options{}).Hosts[0]
+	if h.Status != StatusOK {
+		t.Fatalf("status %v err %q", h.Status, h.Error)
+	}
+	for _, p := range e.fake.List("h1") {
+		if strings.ContainsAny(p, "\r\n") {
+			t.Errorf("rsync list has %q", p)
+		}
+	}
+	checkList(t, "rsync list", e.fake.List("h1"), []string{"/etc/ok", "/h/k"})
+	checkList(t, "manifest", e.manifest(t, "h1"), []string{"/etc/ok", "/h/k"})
+	want := []string{"/etc/a?b", "/h/x?.git", "/h/t?", "/h/m?n", "/h/l?"}
+	checkList(t, "Skipped", h.Globs.Skipped, want)
+	var warn []string
+	for _, p := range want {
+		warn = append(warn, "skipped name containing a newline or carriage return "+p)
+	}
+	checkList(t, "warnings", h.Warnings, warn)
+	if g := h.Globs; g.Listed != 1 || g.Globbed != 1 || g.Tracked != 0 || g.Missing != 0 {
+		t.Errorf("counts %+v", g)
+	}
+}
+
+func TestWriteListFileAndManifestRejectCR(t *testing.T) {
+	if f, err := writeListFile([]string{"/a", "/b\r.git"}); err == nil {
+		os.Remove(f)
+		t.Error("writeListFile accepted a CR path")
+	}
+	m := filepath.Join(t.TempDir(), "m.files")
+	for _, p := range []string{"/b\r.git", "/b\nc"} {
+		if err := WriteManifest(m, []string{"/a", p}); err == nil {
+			t.Errorf("WriteManifest accepted %q", p)
+		}
+	}
+	if _, err := os.Stat(m); !os.IsNotExist(err) {
+		t.Errorf("manifest written: %v", err)
+	}
+}

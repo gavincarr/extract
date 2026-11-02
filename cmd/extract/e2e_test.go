@@ -504,3 +504,61 @@ func TestE2EGlobsRealRsync(t *testing.T) {
 		t.Errorf("hook-created %s: %q, %v", keep, b, err)
 	}
 }
+
+// A remote user can create a file whose name holds a carriage return.
+// rsync's --files-from treats CR as a line end, so "x\r.git" would reach
+// it as "/home/bob/.ssh/x" and ".git"; both are missing remotely, and
+// --delete-missing-args would delete <root>/<host>/.git. Such names must
+// never reach rsync.
+func TestE2EGlobsCRNameRealRsync(t *testing.T) {
+	requireRsync31(t)
+	s := testutil.NewFakeSSH(t)
+	home := filepath.Join(t.TempDir(), "home")
+	if err := os.MkdirAll(filepath.Join(home, ".ssh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s.SetPasswd(t, "bob:x:1000:1000:Bob:"+home+":/bin/sh\n")
+	keys := testutil.WriteFile(t, filepath.Join(home, ".ssh"), "authorized_keys", "ssh-ed25519 AAAA bob\n")
+	testutil.WriteFile(t, filepath.Join(home, ".ssh"), "x\r.git", "evil\n")
+	testutil.WriteFile(t, filepath.Join(home, ".ssh"), "y\rkeep.tar.gz", "evil\n")
+
+	root := rootDir(t)
+	hostDir := filepath.Join(root, "localhost")
+	if err := os.MkdirAll(filepath.Join(hostDir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	head := testutil.WriteFile(t, filepath.Join(hostDir, ".git"), "HEAD", "ref: refs/heads/master\n")
+	hooks := t.TempDir()
+	// Runs before rsync, so the file is there for rsync to delete.
+	hook := testutil.WriteHook(t, hooks, "pre", `echo tarball >> "$1/$3/keep.tar.gz"`)
+	conf := testutil.WriteFile(t, t.TempDir(), "extract.conf",
+		"EXTRACT_ROOT="+root+"\nEXTRACT_HOSTS=localhost\n"+
+			"EXTRACT_FILES_GLOBS=\"~/.ssh/*\"\nPRE_EXTRACT_HOST="+hook+"\n")
+
+	code, out, errs := runCLI("-c", conf, "-v")
+	if code != 0 || errs != "" {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errs)
+	}
+	for _, w := range []string{
+		"localhost: warning: skipped name containing a newline or carriage return " + home + "/.ssh/x?.git\n",
+		"localhost: warning: skipped name containing a newline or carriage return " + home + "/.ssh/y?keep.tar.gz\n",
+	} {
+		if !strings.Contains(out, w) {
+			t.Errorf("stdout lacks %q:\n%s", w, out)
+		}
+	}
+	if b, err := os.ReadFile(head); err != nil || string(b) != "ref: refs/heads/master\n" {
+		t.Errorf("%s: %q, %v", head, b, err)
+	}
+	keep := filepath.Join(hostDir, "keep.tar.gz")
+	if b, err := os.ReadFile(keep); err != nil || string(b) != "tarball\n" {
+		t.Errorf("hook-created %s: %q, %v", keep, b, err)
+	}
+	if _, err := os.Stat(filepath.Join(hostDir, keys)); err != nil {
+		t.Errorf("authorized_keys not extracted: %v", err)
+	}
+	m, err := os.ReadFile(filepath.Join(root, ".extract-state", "localhost.files"))
+	if err != nil || strings.ContainsAny(string(m), "\r") {
+		t.Errorf("manifest %q, %v", m, err)
+	}
+}
