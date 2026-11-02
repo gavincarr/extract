@@ -33,7 +33,9 @@ type Config struct {
 	Hosts       []string
 	HostCmd     string
 	Mode        SourceMode
-	Source      string // the raw EXTRACT_TREE / _FILES_REMOTE / _FILES_LOCAL value
+	Source      string   // the raw EXTRACT_TREE / _FILES_REMOTE / _FILES_LOCAL value ("" for globs only)
+	Globs       []string // validated EXTRACT_FILES_GLOBS then globs-file patterns, deduplicated
+	GlobsFile   string   // absolute path of EXTRACT_FILES_GLOBS_FILE, or ""
 	ScriptsDir  string
 	HookTimeout time.Duration
 
@@ -147,12 +149,28 @@ func (c *Config) loadSource(env map[string]string) error {
 			set = append(set, s)
 		}
 	}
+	globsSet := env["EXTRACT_FILES_GLOBS"] != "" || env["EXTRACT_FILES_GLOBS_FILE"] != ""
 	switch len(set) {
 	case 0:
-		return fmt.Errorf("one of EXTRACT_TREE, EXTRACT_FILES_REMOTE, EXTRACT_FILES_LOCAL must be set")
+		if globsSet {
+			break
+		}
+		return fmt.Errorf("one of EXTRACT_TREE, EXTRACT_FILES_REMOTE, EXTRACT_FILES_LOCAL, EXTRACT_FILES_GLOBS or EXTRACT_FILES_GLOBS_FILE must be set")
 	case 1:
 	default:
 		return fmt.Errorf("only one of EXTRACT_TREE, EXTRACT_FILES_REMOTE, EXTRACT_FILES_LOCAL may be set")
+	}
+	if globsSet {
+		if len(set) == 1 && set[0].mode != ModeFilesRemote {
+			return fmt.Errorf("EXTRACT_FILES_GLOBS/EXTRACT_FILES_GLOBS_FILE can't be combined with %s", set[0].key)
+		}
+		if err := c.loadGlobs(env); err != nil {
+			return err
+		}
+	}
+	if len(set) == 0 {
+		c.Mode = ModeFilesRemote
+		return nil
 	}
 	c.Mode = set[0].mode
 	c.Source = env[set[0].key]
