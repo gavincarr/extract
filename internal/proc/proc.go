@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os/exec"
 	"sync/atomic"
 	"syscall"
@@ -47,6 +48,12 @@ func Run(argv []string, dir string, timeout time.Duration) StepResult {
 // the whole process group is sent SIGTERM, then SIGKILL after killGrace.
 // A timeout of 0 means none. If ctx is already done, nothing is started.
 func RunContext(ctx context.Context, argv []string, dir string, timeout time.Duration) StepResult {
+	return RunContextStdin(ctx, argv, dir, timeout, nil)
+}
+
+// RunContextStdin is RunContext with stdin supplied to the child. A nil
+// stdin means /dev/null.
+func RunContextStdin(ctx context.Context, argv []string, dir string, timeout time.Duration, stdin io.Reader) StepResult {
 	res := StepResult{Argv: argv, ExitCode: -1}
 	if ctx.Err() != nil {
 		res.Interrupted = true
@@ -55,6 +62,9 @@ func RunContext(ctx context.Context, argv []string, dir string, timeout time.Dur
 	var stdout, stderr bytes.Buffer
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = dir
+	if stdin != nil {
+		cmd.Stdin = stdin
+	}
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

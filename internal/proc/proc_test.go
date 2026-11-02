@@ -142,3 +142,25 @@ func TestRunContextAlreadyCancelled(t *testing.T) {
 		t.Fatal("command ran despite cancelled context")
 	}
 }
+
+func TestRunContextStdinPassesInput(t *testing.T) {
+	s := strings.Repeat("line\n", 1<<20/5+1)
+	res := RunContextStdin(context.Background(), []string{"cat"}, "", 10*time.Second, strings.NewReader(s))
+	if res.ExitCode != 0 || res.Stdout != s {
+		t.Fatalf("exit=%d stdout len=%d want %d", res.ExitCode, len(res.Stdout), len(s))
+	}
+}
+
+func TestRunContextStdinNilIsDevNull(t *testing.T) {
+	res := RunContextStdin(context.Background(), []string{"sh", "-c", "test -c /dev/stdin && readlink /proc/self/fd/0"}, "", 10*time.Second, nil)
+	if got := strings.TrimSpace(res.Stdout); got != "/dev/null" {
+		t.Fatalf("stdout = %q, res = %+v", got, res)
+	}
+}
+
+func TestRunContextStdinTimeoutKills(t *testing.T) {
+	res := RunContextStdin(context.Background(), []string{"sleep", "5"}, "", 100*time.Millisecond, strings.NewReader("x"))
+	if !res.TimedOut {
+		t.Fatalf("expected TimedOut, got %+v", res)
+	}
+}
