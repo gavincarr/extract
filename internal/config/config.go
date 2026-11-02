@@ -33,19 +33,31 @@ type Config struct {
 	Hosts       []string
 	HostCmd     string
 	Mode        SourceMode
-	Source      string // the EXTRACT_TREE / _FILES_REMOTE / _FILES_LOCAL value
+	Source      string // the raw EXTRACT_TREE / _FILES_REMOTE / _FILES_LOCAL value
 	ScriptsDir  string
 	HookTimeout time.Duration
 
 	PreSetup, PreHost, PostHost, PostTeardown []string // resolved absolute hook paths
 }
 
-// FilesArg returns Source for the files modes and "" for ModeTree.
+// FilesRemote returns the EXTRACT_FILES_REMOTE candidate paths, split on
+// whitespace. It is only meaningful in ModeFilesRemote.
+func (c *Config) FilesRemote() []string { return strings.Fields(c.Source) }
+
+// FilesArg returns the files list that is the same for every host: "" for
+// ModeTree, Source for ModeFilesLocal, and for ModeFilesRemote the single
+// path when EXTRACT_FILES_REMOTE lists one. With several remote candidates
+// the list is chosen per host, so FilesArg returns "".
 func (c *Config) FilesArg() string {
-	if c.Mode == ModeTree {
-		return ""
+	switch c.Mode {
+	case ModeFilesLocal:
+		return c.Source
+	case ModeFilesRemote:
+		if l := c.FilesRemote(); len(l) == 1 {
+			return l[0]
+		}
 	}
-	return c.Source
+	return ""
 }
 
 // Load reads, parses and validates the config file at path.
@@ -144,6 +156,9 @@ func (c *Config) loadSource(env map[string]string) error {
 	}
 	c.Mode = set[0].mode
 	c.Source = env[set[0].key]
+	if c.Mode == ModeFilesRemote && len(c.FilesRemote()) == 0 {
+		return fmt.Errorf("EXTRACT_FILES_REMOTE is set but lists no paths")
+	}
 	if c.Mode == ModeFilesLocal {
 		// rsync runs in Root and resolves a relative --files-from there, as
 		// the 0.x releases did, so check that path. Source itself is passed

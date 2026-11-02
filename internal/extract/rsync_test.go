@@ -2,6 +2,7 @@ package extract
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/gavincarr/extract/internal/config"
@@ -30,11 +31,34 @@ func TestRsyncArgsGolden(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := RsyncArgs(&config.Config{Mode: c.mode, Source: c.src}, c.host, c.noop, c.v)
+			cfg := &config.Config{Mode: c.mode, Source: c.src}
+			got := RsyncArgs(cfg, c.host, cfg.FilesArg(), c.noop, c.v)
 			want := append(append([]string{}, base...), c.tail...)
 			if !reflect.DeepEqual(got, want) {
 				t.Errorf("got  %q\nwant %q", got, want)
 			}
 		})
+	}
+}
+
+func TestRsyncArgsChosenFilesList(t *testing.T) {
+	cfg := &config.Config{Mode: config.ModeFilesRemote, Source: "/var/rpm.txt /var/deb.txt"}
+	got := RsyncArgs(cfg, Host{"u", "h1"}, "/var/deb.txt", false, 0)
+	want := []string{"rsync", "--archive", "--copy-links", "--delete", "--rsh=ssh -o BatchMode=yes",
+		"--quiet", "--files-from=:/var/deb.txt", "u@h1:/", "h1"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got  %q\nwant %q", got, want)
+	}
+}
+
+func TestProbeArgs(t *testing.T) {
+	got := ProbeArgs(Host{"u", "h1"}, []string{"/var/rpm.txt", "/var/deb list's", "~/x"})
+	want := []string{"ssh", "-o", "BatchMode=yes", "u@h1",
+		`for f in /var/rpm.txt '/var/deb list'\''s' '~/x'; do if test -s "$f"; then printf "%s\n" "$f"; exit 0; fi; done; exit 3`}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got  %q\nwant %q", got, want)
+	}
+	if strings.Contains(got[4], "!") || strings.Contains(got[4], "\n") {
+		t.Errorf("script must be one line without '!': %q", got[4])
 	}
 }

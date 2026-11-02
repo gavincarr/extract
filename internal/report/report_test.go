@@ -257,3 +257,70 @@ func TestReportInterruptedSetupHook(t *testing.T) {
 		t.Errorf("stderr: %q", e)
 	}
 }
+
+func probeArgv(h string) []string {
+	return extract.ProbeArgs(host(h), []string{"/a", "/b"})
+}
+
+const probeCmd = `ssh -o BatchMode=yes h1 'for f in /a /b; do if test -s "$f"; then printf "%s\n" "$f"; exit 0; fi; done; exit 3'`
+
+func TestReportProbeFailure(t *testing.T) {
+	r := &extract.Result{Hosts: []extract.HostResult{{
+		Host: host("h1"), Status: extract.StatusFailed, Error: "files list probe exited 255",
+		Probe: &proc.StepResult{Argv: probeArgv("h1"), ExitCode: 255,
+			Stderr: "ssh: connect to host h1 port 22: Connection refused\n"},
+		PreHooks: []extract.HookResult{{Stage: "pre_extract_host", Path: "/s/pre"}},
+	}}}
+	o, e := run(r, 0)
+	if o != "" {
+		t.Errorf("stdout: %q", o)
+	}
+	if e != "h1: files list probe exited 255\n  ssh: connect to host h1 port 22: Connection refused\n" {
+		t.Errorf("stderr: %q", e)
+	}
+
+	r.Hosts[0].Error = "files list probe exited 0 without printing a candidate path"
+	r.Hosts[0].Probe = &proc.StepResult{Argv: probeArgv("h1"), Stdout: "Welcome to h1\n"}
+	_, e = run(r, 0)
+	if e != "h1: files list probe exited 0 without printing a candidate path\n  Welcome to h1\n" {
+		t.Errorf("stderr: %q", e)
+	}
+}
+
+func TestReportProbeTraceVVV(t *testing.T) {
+	h := okHost("h1")
+	h.Probe = &proc.StepResult{Argv: probeArgv("h1"), Stdout: "/b\n"}
+	h.FilesFrom = "/b"
+	o, e := run(&extract.Result{Hosts: []extract.HostResult{h}}, 3)
+	if e != "" {
+		t.Errorf("stderr: %q", e)
+	}
+	want := "+ " + probeCmd + "\n  /b\n+ rsync "
+	if !strings.Contains(o, want) {
+		t.Errorf("stdout %q lacks %q", o, want)
+	}
+}
+
+func TestPrintPlanProbe(t *testing.T) {
+	args := []string{"/root", "/cfg", "h1", "/b"}
+	ok := extract.HostResult{Host: host("h1"), FilesFrom: "/b",
+		Probe:     &proc.StepResult{Argv: probeArgv("h1"), Stdout: "/b\n"},
+		PreHooks:  []extract.HookResult{{Stage: "pre_extract_host", Path: "/s/pre", Args: args}},
+		Rsync:     &proc.StepResult{Argv: []string{"rsync", "--files-from=:/b", "h1:/", "h1"}},
+		PostHooks: []extract.HookResult{{Stage: "post_extract_host", Path: "/s/post", Args: args}}}
+	failArgs := []string{"/root", "/cfg", "h2", ""}
+	failed := extract.HostResult{Host: host("h2"), Status: extract.StatusFailed,
+		Probe:     &proc.StepResult{Argv: probeArgv("h2"), ExitCode: 3},
+		PreHooks:  []extract.HookResult{{Stage: "pre_extract_host", Path: "/s/pre", Args: failArgs}},
+		PostHooks: []extract.HookResult{{Stage: "post_extract_host", Path: "/s/post", Args: failArgs}}}
+	var b bytes.Buffer
+	PrintPlan(&b, &extract.Result{Noop: true, Hosts: []extract.HostResult{ok, failed}})
+	want := "checked files lists: " + probeCmd + " -> /b\n" +
+		"would run pre_extract_host: /s/pre /root /cfg h1 /b\n" +
+		"would rsync: rsync --files-from=:/b h1:/ h1\n" +
+		"would run post_extract_host: /s/post /root /cfg h1 /b\n" +
+		"checked files lists: " + strings.Replace(probeCmd, " h1 ", " h2 ", 1) + " (failed)\n"
+	if b.String() != want {
+		t.Errorf("got\n%s\nwant\n%s", b.String(), want)
+	}
+}

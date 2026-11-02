@@ -307,3 +307,70 @@ func TestE2EExplicitSyncSubcommand(t *testing.T) {
 		t.Errorf("calls = %+v", calls)
 	}
 }
+
+// writeRemoteListsConf writes a config whose EXTRACT_FILES_REMOTE lists a
+// missing file, an empty file and a non-empty one, and returns its path and
+// the non-empty file's path.
+func writeRemoteListsConf(t *testing.T, extra string) (conf, full string) {
+	t.Helper()
+	d := t.TempDir()
+	missing := filepath.Join(d, "missing.txt")
+	empty := testutil.WriteFile(t, d, "empty.txt", "")
+	full = testutil.WriteFile(t, d, "deb.txt", "/etc/hosts\n")
+	body := "EXTRACT_ROOT=" + t.TempDir() + "\nEXTRACT_FILES_REMOTE=\"" + missing + " " + empty + " " + full + "\"\n" + extra
+	conf = filepath.Join(t.TempDir(), "extract.conf")
+	if err := os.WriteFile(conf, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return conf, full
+}
+
+func TestE2EFilesRemoteProbe(t *testing.T) {
+	f := testutil.NewFakeRsync(t)
+	s := testutil.NewFakeSSH(t)
+	hooks := t.TempDir()
+	hook := testutil.WriteHook(t, hooks, "post", "exit 0")
+	conf, full := writeRemoteListsConf(t, "EXTRACT_HOSTS=\"h1 u@h2\"\nPOST_EXTRACT_HOST="+hook+"\n")
+
+	code, out, errs := runCLI("-c", conf)
+	if code != 0 || out != "" || errs != "" {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errs)
+	}
+	if n := len(s.Calls()); n != 2 {
+		t.Errorf("ssh calls = %d, want 2", n)
+	}
+	for _, c := range f.Calls() {
+		if !slices.Contains(c.Argv, "--files-from=:"+full) {
+			t.Errorf("rsync argv %q", c.Argv)
+		}
+	}
+	for _, l := range testutil.HookLog(t, hooks) {
+		if !strings.Contains(l, " "+full+" cwd=") {
+			t.Errorf("hook $4 not the chosen list: %q", l)
+		}
+	}
+
+	// -n still probes, and the plan shows the choice.
+	code, out, errs = runCLI("-c", conf, "-n", "h1")
+	if code != 0 || errs != "" ||
+		!strings.Contains(out, "checked files lists: ssh -o BatchMode=yes h1 'for f in ") ||
+		!strings.Contains(out, " -> "+full+"\n") ||
+		!strings.Contains(out, "--files-from=:"+full+" h1:/ h1\n") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errs)
+	}
+}
+
+func TestE2EFilesRemoteProbeFailure(t *testing.T) {
+	f := testutil.NewFakeRsync(t)
+	s := testutil.NewFakeSSH(t)
+	s.SetHost("h1", 255, "", "Permission denied (publickey).\n", 0)
+	conf, _ := writeRemoteListsConf(t, "EXTRACT_HOSTS=\"h1 h2\"\n")
+	code, out, errs := runCLI("-c", conf, "-v")
+	if code != 1 || out != "1 ok, 1 failed, 0 timed out\n" ||
+		errs != "h1: files list probe exited 255\n  Permission denied (publickey).\n" {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errs)
+	}
+	if calls := f.Calls(); len(calls) != 1 || calls[0].Argv[len(calls[0].Argv)-1] != "h2" {
+		t.Errorf("rsync calls %+v", calls)
+	}
+}

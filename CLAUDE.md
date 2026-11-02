@@ -38,14 +38,19 @@ CGO_ENABLED=1 go test -race ./...                # -race needs cgo, which is off
   parser (`parse.go`: quotes stripped, no `$` expansion, like
   Config::Tiny) and validates it, including resolving and checking hook
   paths at load time.
-- `internal/extract`: `ResolveHosts`, `RsyncArgs` and `Run`.
+- `internal/extract`: `ResolveHosts`, `RsyncArgs` and `Run`. With several
+  `EXTRACT_FILES_REMOTE` paths, `runHost` first runs an ssh probe
+  (`probe.go`: `ProbeArgs`, a one-line `test -s` loop) to choose the
+  host's list; a failed probe skips pre/post-host hooks and rsync.
 - `internal/proc`: runs one command with a timeout in its own process group
   (kill `-pgid`: SIGTERM, then SIGKILL after a grace period). `RunContext`
   kills the same way when its context is cancelled; `run` cancels on
   SIGINT/SIGTERM/SIGHUP, because children in their own groups would
   otherwise survive extract being killed.
 - `internal/report`: renders a result as plain lines through `slog`.
-- `internal/testutil`: fake rsync on `PATH` for tests.
+- `internal/testutil`: fake rsync and ssh on `PATH` for tests. The fake
+  ssh runs the remote command with `sh -c` against local files unless
+  `SetHost` overrides it.
 
 ### The Result seam
 
@@ -59,7 +64,8 @@ consume `Result` rather than add output to the runner.
 Four hook keys, each a comma-separated list: `PRE_EXTRACT_SETUP` and
 `POST_EXTRACT_TEARDOWN` (once per run), `PRE_EXTRACT_HOST` and
 `POST_EXTRACT_HOST` (per host). Args are `$1=EXTRACT_ROOT $2=config path`
-(absolute), plus `$3=host $4=files list path or ""` for per-host hooks.
+(absolute), plus `$3=host $4=files list path or ""` for per-host hooks
+(the per-host chosen path when `EXTRACT_FILES_REMOTE` lists several).
 Changing the arg order breaks user scripts. Hooks are exec'd directly with
 `EXTRACT_ROOT` as cwd. Non-zero exit is a failure and stops the rest of that
 list; each hook has `EXTRACT_HOOK_TIMEOUT`. Failure rules that are easy to
@@ -80,8 +86,9 @@ values. `TestLoadShippedDist` parses the dist file.
 Output levels: default prints only failures (stderr); `-v` adds a summary line,
 `-vv` a line per OK host, `-vvv` rsync commands and step output (and rsync
 `--verbose`). `-n` always prints the plan and runs no hooks, but does run
-`EXTRACT_HOST_CMD`. Exit codes: 0 all OK; 1 a host or hook failed; 2 usage or
-config error (kong's 80 is mapped to 2). Errors go to stderr, info to stdout.
+`EXTRACT_HOST_CMD` and the files-list probe. Exit codes: 0 all OK; 1 a host
+or hook failed; 2 usage or config error (kong's 80 is mapped to 2). Errors
+go to stderr, info to stdout.
 
 ## Conventions
 

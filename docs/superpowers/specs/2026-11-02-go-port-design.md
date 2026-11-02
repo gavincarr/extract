@@ -93,6 +93,14 @@ conventions (`internal/version/VERSION`, embedded).
   `PRE_EXTRACT_HOST`, `POST_EXTRACT_HOST` and `POST_EXTRACT_TEARDOWN`.
   The four hook keys are comma-separated lists, with whitespace around
   commas ignored.
+- `EXTRACT_FILES_REMOTE` is a whitespace-separated list of remote paths
+  (quoted when there are several, since hooks `source` the file; paths
+  therefore can't contain whitespace). A value that is set but blank
+  still counts as set for the "exactly one of" rule, and is then a
+  config error (no paths). Paths are not checked at load time; they are
+  remote. See rsync invocation for how one is chosen per host.
+  *(Added in 0.9.0: RPM- and DEB-based hosts generate their lists with
+  different tools under different names.)*
 - New optional key `EXTRACT_SCRIPTS_DIR`, defaulting to
   `/etc/extract/scripts`. *(My call. It replaces Perl's
   `$RealBin/../etc/scripts` fallback, which never matched the repo
@@ -115,6 +123,21 @@ The rsync commands must match the Perl version's (via `File::Rsync`):
   (no trailing slash, so files land in `<root>/<host>/etc/...`)
 - `EXTRACT_FILES_REMOTE=/p` → `--files-from=:/p`, source
   `[user@]host:/`, destination `host`
+- `EXTRACT_FILES_REMOTE="/p1 /p2 ..."` (two or more paths) → first, for
+  each host, a probe:
+  `ssh -o BatchMode=yes [user@]host 'for f in /p1 /p2; do if test -s "$f"; then printf "%s\n" "$f"; exit 0; fi; done; exit 3'`
+  (paths single-quoted when they need it; one line of POSIX sh with no
+  `!`). It runs before the pre-host hooks and the host-directory mkdir,
+  from `EXTRACT_ROOT`, with the `-t` timeout, and under `-n` too (it is
+  read-only). Exit 0 printing one of the candidates chooses it, and rsync
+  gets `--files-from=:<chosen>`. Exit 3 with no output means no
+  candidate is a non-empty file on that host (not 1, which a login
+  shell that cannot run the loop, such as csh, also returns). Anything else (ssh's 255,
+  say, or exit 0 printing something else) is a probe failure. On any
+  failure the host is failed (timed out on a timeout) and its pre-host
+  hooks, rsync and post-host hooks are all skipped; other hosts carry
+  on. A single path runs no probe. The probe is recorded on
+  `HostResult.Probe`, the chosen path on `HostResult.FilesFrom`.
 - `EXTRACT_FILES_LOCAL=/p` → `--files-from=/p`, source
   `[user@]host:/`, destination `host`
 - run with the working directory set to `EXTRACT_ROOT`; the host
@@ -131,12 +154,16 @@ The rsync commands must match the Perl version's (via `File::Rsync`):
   - `PRE_EXTRACT_SETUP` and `POST_EXTRACT_TEARDOWN`:
     `$1=EXTRACT_ROOT $2=<config path>`
   - `PRE_EXTRACT_HOST` and `POST_EXTRACT_HOST`: the same, plus
-    `$3=<host> $4=<files path>`. `$4` is the `EXTRACT_FILES_REMOTE` or
-    `EXTRACT_FILES_LOCAL` value, or an empty string in tree mode.
+    `$3=<host> $4=<files path>`. `$4` is the files list given to rsync:
+    the `EXTRACT_FILES_REMOTE` path chosen for that host (the value
+    itself when it lists one path), the `EXTRACT_FILES_LOCAL` value, or
+    an empty string in tree mode.
   - `$2` must be the config path as an absolute path, because hooks
     `source` it after `cd`-ing.
-- **Order.** Setup hooks run once. Then, for each host: pre-host hooks,
-  rsync, post-host hooks. Teardown hooks run once at the end.
+- **Order.** Setup hooks run once. Then, for each host: the files-list
+  probe (several `EXTRACT_FILES_REMOTE` paths only), pre-host hooks,
+  rsync, post-host hooks. Teardown hooks run once at the end. A failed
+  probe skips both pre- and post-host hooks.
 - **Environment and working directory.** Hooks inherit extract's
   environment and run with the working directory set to `EXTRACT_ROOT`.
   stdin is `/dev/null`.
@@ -233,7 +260,9 @@ debug lines (summary, per-host lines, `-vvv` detail, the `-n` plan) go to
 Under `-n`, extract prints what it would do (hooks it would run, rsync
 commands) regardless of `-v`. rsync runs with `--dry-run`, hooks are
 **not** run, and `EXTRACT_HOST_CMD` **is** run (it's needed to get the
-host list). *(My call: noop output ignores `-v` because asking for a dry
+host list). The files-list probe also runs (it is read-only), and the plan
+shows it as `checked files lists: <ssh command> -> <chosen>` before the
+host's hook lines, or `... (failed)` and nothing else for that host. *(My call: noop output ignores `-v` because asking for a dry
 run is asking to see the plan.)*
 
 ## Exit codes

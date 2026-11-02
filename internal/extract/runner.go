@@ -43,15 +43,26 @@ func (h HookResult) Failed() bool { return h.Step != nil && h.Step.Failed() }
 
 // HostResult is the outcome of extracting one host.
 type HostResult struct {
-	Host      Host
-	Status    Status
-	Error     string // "" when OK
-	Warnings  []string
+	Host     Host
+	Status   Status
+	Error    string // "" when OK
+	Warnings []string
+	// Probe is the ssh step that chose among several EXTRACT_FILES_REMOTE
+	// candidates; nil when it was not run (one candidate, or another mode).
+	Probe *proc.StepResult
+	// FilesFrom is the files list given to rsync and passed to the per-host
+	// hooks as $4: the chosen EXTRACT_FILES_REMOTE path, the
+	// EXTRACT_FILES_LOCAL value, or "" in tree mode or if the probe failed.
+	FilesFrom string
 	Rsync     *proc.StepResult // nil if rsync was not run
 	PreHooks  []HookResult
 	PostHooks []HookResult
 	Duration  time.Duration
 }
+
+// ProbeFailed reports whether the files list probe ran without choosing a
+// files list, in which case nothing else was run for the host.
+func (h HostResult) ProbeFailed() bool { return h.Probe != nil && h.FilesFrom == "" }
 
 // Result is the outcome of a whole run.
 type Result struct {
@@ -139,7 +150,7 @@ func runHost(ctx context.Context, cfg *config.Config, h Host, opts Options) (hr 
 	hr.Host = h
 	defer func() { hr.Duration = time.Since(start) }()
 
-	hookArgs := []string{cfg.Root, cfg.Path, h.Name, cfg.FilesArg()}
+	var hookArgs []string
 	skip := func() {
 		hr.PreHooks = skipHooks(stagePreHost, cfg.PreHost, hookArgs, cfg.HookTimeout)
 		hr.PostHooks = skipHooks(stagePostHost, cfg.PostHost, hookArgs, cfg.HookTimeout)
@@ -148,6 +159,22 @@ func runHost(ctx context.Context, cfg *config.Config, h Host, opts Options) (hr 
 		hr.Status = status
 		hr.Error = msg
 	}
+
+	hr.FilesFrom = cfg.FilesArg()
+	if paths := cfg.FilesRemote(); cfg.Mode == config.ModeFilesRemote && len(paths) > 1 {
+		// Read-only, so it runs under noop too, like EXTRACT_HOST_CMD.
+		step := proc.RunContext(ctx, ProbeArgs(h, paths), cfg.Root, opts.Timeout)
+		hr.Probe = &step
+		chosen, status, msg := probeOutcome(step, paths, opts.Timeout)
+		if msg != "" {
+			hookArgs = []string{cfg.Root, cfg.Path, h.Name, ""}
+			skip()
+			fail(status, msg)
+			return hr
+		}
+		hr.FilesFrom = chosen
+	}
+	hookArgs = []string{cfg.Root, cfg.Path, h.Name, hr.FilesFrom}
 
 	if !opts.Noop {
 		dir := filepath.Join(cfg.Root, h.Name)
@@ -168,7 +195,7 @@ func runHost(ctx context.Context, cfg *config.Config, h Host, opts Options) (hr 
 		return hr
 	}
 
-	step := proc.RunContext(ctx, RsyncArgs(cfg, h, opts.Noop, opts.Verbosity), cfg.Root, opts.Timeout)
+	step := proc.RunContext(ctx, RsyncArgs(cfg, h, hr.FilesFrom, opts.Noop, opts.Verbosity), cfg.Root, opts.Timeout)
 	hr.Rsync = &step
 	switch {
 	case step.Err != nil:

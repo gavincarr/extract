@@ -11,6 +11,9 @@
 # Which files should be extracted?
 # File containing list of files to extract (on the remote host)
 #EXTRACT_FILES_REMOTE=/var/cache/rpm-find-changes/etc.txt
+# Or a quoted, space separated list of candidates: for each host the first
+# one that exists and is non-empty there is used (found with one ssh call)
+#EXTRACT_FILES_REMOTE="/var/cache/rpm-find-changes/etc.txt /var/cache/deb-find-changes/etc.txt"
 # File containing list of files to extract (on the local/extracting host)
 #EXTRACT_FILES_LOCAL=/etc/extract/synclist.txt
 # Tree on the remote server that should be extracted

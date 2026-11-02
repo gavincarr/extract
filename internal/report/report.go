@@ -36,6 +36,7 @@ func Report(log *slog.Logger, r *extract.Result) {
 		trace(h.Step)
 	}
 	for _, h := range r.Hosts {
+		trace(h.Probe)
 		for _, p := range h.PreHooks {
 			trace(p.Step)
 		}
@@ -74,6 +75,12 @@ func Report(log *slog.Logger, r *extract.Result) {
 			failed++
 		}
 		say(slog.LevelError, "%s: %s", h.Host, h.Error)
+		if h.ProbeFailed() {
+			// Nothing else ran for this host.
+			out(slog.LevelError, h.Probe.Stdout)
+			out(slog.LevelError, h.Probe.Stderr)
+			continue
+		}
 		if h.Rsync != nil && h.Rsync.Failed() && h.Rsync.ExitCode != 24 {
 			out(slog.LevelError, h.Rsync.Stderr)
 			// The rsync failure is the root cause, but a hook that also
@@ -161,7 +168,9 @@ func indent(s string) []string {
 	return lines
 }
 
-// PrintPlan writes the noop plan to w, in execution order.
+// PrintPlan writes the noop plan to w, in execution order. A files list
+// probe really ran, so its line gives the path it chose; a host whose probe
+// failed gets only that line.
 func PrintPlan(w io.Writer, r *extract.Result) {
 	hooks := func(hs []extract.HookResult) {
 		for _, h := range hs {
@@ -170,6 +179,14 @@ func PrintPlan(w io.Writer, r *extract.Result) {
 	}
 	hooks(r.SetupHooks)
 	for _, h := range r.Hosts {
+		if h.Probe != nil {
+			if h.ProbeFailed() {
+				// Nothing else would run for this host.
+				fmt.Fprintf(w, "checked files lists: %s (failed)\n", shellJoin(h.Probe.Argv))
+				continue
+			}
+			fmt.Fprintf(w, "checked files lists: %s -> %s\n", shellJoin(h.Probe.Argv), h.FilesFrom)
+		}
 		hooks(h.PreHooks)
 		if h.Rsync != nil {
 			fmt.Fprintf(w, "would rsync: %s\n", shellJoin(h.Rsync.Argv))

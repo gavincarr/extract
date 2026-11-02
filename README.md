@@ -67,7 +67,7 @@ Global flags:
 
 | Flag | Meaning | Default |
 |---|---|---|
-| `-t`, `--timeout` | per-host rsync timeout, in seconds (0 = none) | 60 |
+| `-t`, `--timeout` | per-host rsync timeout, in seconds (0 = none); also applies to the files-list probe | 60 |
 | `-n`, `--noop` | dry run | off |
 
 A host argument that has the same name as a command is read as that
@@ -90,7 +90,10 @@ immediately instead of hanging a cron job. Each host is extracted into
 With `-n`, extract prints what it would do (the hooks it would run and
 the rsync commands) whatever the `-v` level. rsync runs with `--dry-run`
 and hooks are not run. `EXTRACT_HOST_CMD` is still run, since it is
-needed to get the host list.
+needed to get the host list, and so is the read-only files-list probe
+(see `EXTRACT_FILES_REMOTE`), so the plan shows each host's chosen list
+in a `checked files lists: ... -> <path>` line and in its rsync
+`--files-from`.
 
 
 Configuration
@@ -112,7 +115,7 @@ doesn't know are ignored; the hooks use their own, such as
 | `EXTRACT_HOSTS` | Hosts to extract from (quoted, whitespace separated). |
 | `EXTRACT_HOST_CMD` | Alternative to `EXTRACT_HOSTS`: a command (run via `sh -c`) whose output is a whitespace-separated host list. A non-zero exit or empty output is fatal. |
 | `EXTRACT_TREE` | A tree on the remote host to extract in its entirety, e.g. `/etc`. Files land in `<root>/<host>/etc/...`. |
-| `EXTRACT_FILES_REMOTE` | Absolute path, on the remote host, of a file listing the files to extract. |
+| `EXTRACT_FILES_REMOTE` | Absolute path, on the remote host, of a file listing the files to extract. May be a quoted, whitespace-separated list of paths, e.g. `"/var/cache/rpm-find-changes/etc.txt /var/cache/deb-find-changes/etc.txt"` for a mix of RPM- and DEB-based hosts: for each host, the first path that exists and is non-empty there is used. extract finds it with one `ssh -o BatchMode=yes [user@]host` call (a `test -s` loop in POSIX sh) before anything else for that host; a single path runs no probe. Paths can't contain whitespace. |
 | `EXTRACT_FILES_LOCAL` | Path, on the local host, of a file listing the files to extract (a relative path is taken relative to `EXTRACT_ROOT`). Must be a readable regular file. |
 | `PRE_EXTRACT_SETUP` | Hook(s) run once, before any extracts. |
 | `PRE_EXTRACT_HOST` | Hook(s) run before each host's extract. |
@@ -126,7 +129,8 @@ Hosts come from the command line if any are given, otherwise from
 
 Exactly one of `EXTRACT_TREE`, `EXTRACT_FILES_REMOTE` and
 `EXTRACT_FILES_LOCAL` must be set. The files-list variants are passed to
-rsync as `--files-from`.
+rsync as `--files-from` (`--files-from=:<path>` for the remote one, with
+the path chosen for that host).
 
 
 Hook scripts
@@ -146,15 +150,18 @@ Arguments:
 - `PRE_EXTRACT_SETUP`, `POST_EXTRACT_TEARDOWN`:
   `$1` = `EXTRACT_ROOT`, `$2` = absolute path of the config file.
 - `PRE_EXTRACT_HOST`, `POST_EXTRACT_HOST`: the same, plus `$3` = host
-  and `$4` = the `EXTRACT_FILES_REMOTE` or `EXTRACT_FILES_LOCAL` value,
-  or an empty string when `EXTRACT_TREE` is used.
+  and `$4` = the files list given to rsync: the `EXTRACT_FILES_REMOTE`
+  path chosen for that host (the value itself when it lists one path),
+  the `EXTRACT_FILES_LOCAL` value, or an empty string when
+  `EXTRACT_TREE` is used.
 
 Hooks are executed directly (not through a shell), inherit extract's
 environment, run with `EXTRACT_ROOT` as the working directory, and have
 stdin set to `/dev/null`.
 
-Order: setup hooks run once; then for each host, pre-host hooks, rsync,
-post-host hooks; then teardown hooks run once.
+Order: setup hooks run once; then for each host, the files-list probe
+(only when `EXTRACT_FILES_REMOTE` lists several paths), pre-host hooks,
+rsync, post-host hooks; then teardown hooks run once.
 
 Exit status matters. A non-zero exit means the hook failed, and the
 first failing hook in a list stops the rest of that list. For example,
@@ -168,6 +175,7 @@ What a failure does:
 | Event | Effect |
 |---|---|
 | Setup hook fails | Run aborts: no hosts, no teardown. Exit 1. |
+| Files-list probe fails or finds no non-empty list (several `EXTRACT_FILES_REMOTE` paths) | Host marked failed (timed out, if it exceeded `-t`); its pre-host hooks, rsync and post-host hooks are skipped, and the ssh error output is shown. |
 | Pre-host hook fails | Host marked failed; its rsync and post-host hooks are skipped. |
 | rsync exits 24 (files vanished) | Host is OK, with a warning shown at `-v` and above. |
 | rsync exits non-zero otherwise (including 23) | Host marked failed. Post-host hooks still run. |
@@ -189,10 +197,10 @@ warnings appear only at `-v` and above.
 
 | Level | All OK | Some failures |
 |---|---|---|
-| default | nothing | each failed or timed-out host or failed hook, with its error and rsync stderr or hook output |
+| default | nothing | each failed or timed-out host or failed hook, with its error and rsync or probe stderr, or hook output |
 | `-v` | one summary line, e.g. `42 hosts ok` | summary line (`40 ok, 1 failed, 1 timed out`) plus each failure itemised |
 | `-vv` | adds one line per successful host, with duration | same |
-| `-vvv` | adds rsync commands, rsync output, and hook output for successful steps | same |
+| `-vvv` | adds rsync and files-list probe commands, their output, and hook output for successful steps | same |
 
 At `-vvv` rsync runs with `--verbose` instead of `--quiet`.
 
@@ -208,7 +216,8 @@ Exit codes:
   and exits 1 with `extract: host command interrupted: context canceled`.
 - `2`: usage or configuration error; nothing was extracted. This covers
   bad flags, an unreadable config, a missing or unwritable
-  `EXTRACT_ROOT`, bad source keys (none set, or more than one), an
+  `EXTRACT_ROOT`, bad source keys (none set, more than one, or an
+  `EXTRACT_FILES_REMOTE` with no paths), an
   invalid host name, a missing or non-executable hook, and a failed or
   empty `EXTRACT_HOST_CMD`.
 

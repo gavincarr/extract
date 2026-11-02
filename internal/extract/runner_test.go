@@ -17,12 +17,13 @@ import (
 type env struct {
 	root, hooks string
 	fake        *testutil.FakeRsync
+	ssh         *testutil.FakeSSH
 	cfg         *config.Config
 }
 
 func newEnv(t *testing.T) *env {
 	t.Helper()
-	e := &env{root: t.TempDir(), hooks: t.TempDir(), fake: testutil.NewFakeRsync(t)}
+	e := &env{root: t.TempDir(), hooks: t.TempDir(), fake: testutil.NewFakeRsync(t), ssh: testutil.NewFakeSSH(t)}
 	e.cfg = &config.Config{
 		Path: "/cfg/extract.conf", Root: e.root, Mode: config.ModeTree,
 		Source: "/etc", HookTimeout: 10 * time.Second,
@@ -415,5 +416,216 @@ func TestRunInterruptedDuringTeardown(t *testing.T) {
 	}
 	if s := r.TeardownHooks[0].Step; s == nil || !s.Interrupted {
 		t.Errorf("teardown step = %+v, want interrupted", s)
+	}
+}
+
+// lists sets up remote-files mode with candidates in a temp dir: a missing
+// file, an empty file and two non-empty files, in that order.
+func (e *env) lists(t *testing.T) (missing, empty, full, full2 string) {
+	t.Helper()
+	d := t.TempDir()
+	missing = filepath.Join(d, "missing.txt")
+	empty = testutil.WriteFile(t, d, "empty.txt", "")
+	full = testutil.WriteFile(t, d, "rpm.txt", "/etc/hosts\n")
+	full2 = testutil.WriteFile(t, d, "deb.txt", "/etc/passwd\n")
+	e.cfg.Mode = config.ModeFilesRemote
+	e.cfg.Source = missing + "  " + empty + "\n" + full + " " + full2
+	return
+}
+
+func TestRunFilesRemoteSingleDoesNotProbe(t *testing.T) {
+	e := newEnv(t)
+	e.cfg.Mode = config.ModeFilesRemote
+	e.cfg.Source = "/var/x.txt"
+	h := Run(e.cfg, hosts("h1"), Options{}).Hosts[0]
+	if n := len(e.ssh.Calls()); n != 0 {
+		t.Errorf("ssh calls = %d, want 0", n)
+	}
+	if h.Probe != nil || h.FilesFrom != "/var/x.txt" || h.Status != StatusOK {
+		t.Errorf("Probe=%v FilesFrom=%q Status=%v", h.Probe, h.FilesFrom, h.Status)
+	}
+}
+
+func TestRunFilesRemoteProbePicksFirstNonEmpty(t *testing.T) {
+	e := newEnv(t)
+	_, _, full, _ := e.lists(t)
+	e.cfg.PreHost = []string{e.hook(t, "pre", "")}
+	e.cfg.PostHost = []string{e.hook(t, "post", "")}
+	r := Run(e.cfg, []Host{{User: "u", Name: "h1"}, {Name: "h2"}}, Options{})
+	if !r.OK() {
+		t.Fatalf("not OK: %+v", r.Hosts)
+	}
+	ssh := e.ssh.Calls()
+	if len(ssh) != 2 {
+		t.Fatalf("ssh calls = %d, want 2", len(ssh))
+	}
+	for i, dest := range []string{"u@h1", "h2"} {
+		if a := ssh[i].Argv; len(a) != 4 || !reflect.DeepEqual(a[:3], []string{"-o", "BatchMode=yes", dest}) {
+			t.Errorf("ssh argv %q", a)
+		}
+		if ssh[i].Dir != e.root {
+			t.Errorf("ssh dir %q", ssh[i].Dir)
+		}
+	}
+	rs := e.fake.Calls()
+	if len(rs) != 2 {
+		t.Fatalf("rsync calls = %d", len(rs))
+	}
+	for _, c := range rs {
+		if !slices.Contains(c.Argv, "--files-from=:"+full) {
+			t.Errorf("rsync argv %q lacks --files-from=:%s", c.Argv, full)
+		}
+	}
+	for _, h := range r.Hosts {
+		if h.FilesFrom != full || h.Probe == nil || strings.TrimSpace(h.Probe.Stdout) != full {
+			t.Errorf("%v: FilesFrom=%q Probe=%+v", h.Host, h.FilesFrom, h.Probe)
+		}
+	}
+	R, C := e.root, "/cfg/extract.conf"
+	want := []string{
+		"pre " + R + " " + C + " h1 " + full + " cwd=" + R,
+		"post " + R + " " + C + " h1 " + full + " cwd=" + R,
+		"pre " + R + " " + C + " h2 " + full + " cwd=" + R,
+		"post " + R + " " + C + " h2 " + full + " cwd=" + R,
+	}
+	if got := testutil.HookLog(t, e.hooks); !reflect.DeepEqual(got, want) {
+		t.Errorf("hook log:\n got %q\nwant %q", got, want)
+	}
+}
+
+func TestRunFilesRemoteProbeFindsNothing(t *testing.T) {
+	e := newEnv(t)
+	missing, empty, _, _ := e.lists(t)
+	e.cfg.Source = missing + " " + empty
+	e.cfg.PreHost = []string{e.hook(t, "pre", "")}
+	e.cfg.PostHost = []string{e.hook(t, "post", "")}
+	e.ssh.SetHost("h2", 0, empty+"\n", "", 0) // pretend h2's list is non-empty
+	r := Run(e.cfg, hosts("h1", "h2"), Options{})
+	h1, h2 := r.Hosts[0], r.Hosts[1]
+	if h1.Status != StatusFailed || h1.Error != "no non-empty files list found among: "+missing+" "+empty {
+		t.Errorf("h1: %v %q", h1.Status, h1.Error)
+	}
+	if h1.Rsync != nil || h1.Probe == nil || h1.FilesFrom != "" || !h1.ProbeFailed() {
+		t.Errorf("h1: Rsync=%v Probe=%v FilesFrom=%q", h1.Rsync, h1.Probe, h1.FilesFrom)
+	}
+	if len(h1.PreHooks) != 1 || h1.PreHooks[0].Step != nil || len(h1.PostHooks) != 1 || h1.PostHooks[0].Step != nil {
+		t.Errorf("h1 hooks should be listed, not run: %+v %+v", h1.PreHooks, h1.PostHooks)
+	}
+	if _, err := os.Stat(filepath.Join(e.root, "h1")); err == nil {
+		t.Error("h1 dir created before the probe succeeded")
+	}
+	if h2.Status != StatusOK || h2.FilesFrom != empty || h2.ProbeFailed() || r.OK() {
+		t.Errorf("h2: %v %q FilesFrom=%q OK=%v", h2.Status, h2.Error, h2.FilesFrom, r.OK())
+	}
+	rs := e.fake.Calls()
+	if len(rs) != 1 || rs[0].Argv[len(rs[0].Argv)-1] != "h2" {
+		t.Errorf("rsync calls %+v", rs)
+	}
+	for _, l := range testutil.HookLog(t, e.hooks) {
+		if strings.Contains(l, " h1 ") {
+			t.Errorf("hook ran for h1: %q", l)
+		}
+	}
+}
+
+func TestRunFilesRemoteProbeErrors(t *testing.T) {
+	cases := []struct {
+		name, stdout, stderr string
+		exit                 int
+		wantErr              string
+	}{
+		{"ssh-255", "", "ssh: connect to host h1 port 22: Connection refused\n", 255, "files list probe exited 255"},
+		{"none-found-with-output", "/etc/motd\n", "", 3, "files list probe exited 3"},
+		{"csh-login-shell", "", "for: Command not found.\n", 1, "files list probe exited 1"},
+		{"exit-0-not-a-candidate", "Welcome!\n", "", 0, "files list probe exited 0 without printing a candidate path"},
+		{"exit-0-empty", "", "", 0, "files list probe exited 0 without printing a candidate path"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.lists(t)
+			e.cfg.PostHost = []string{e.hook(t, "post", "")}
+			e.ssh.SetHost("h1", c.exit, c.stdout, c.stderr, 0)
+			h := Run(e.cfg, hosts("h1"), Options{}).Hosts[0]
+			if h.Status != StatusFailed || h.Error != c.wantErr {
+				t.Errorf("%v %q, want %q", h.Status, h.Error, c.wantErr)
+			}
+			if h.Probe == nil || h.Probe.Stderr != c.stderr || h.Rsync != nil || !h.ProbeFailed() {
+				t.Errorf("Probe=%+v Rsync=%v", h.Probe, h.Rsync)
+			}
+			if len(e.fake.Calls()) != 0 || len(testutil.HookLog(t, e.hooks)) != 0 {
+				t.Error("rsync or hooks ran")
+			}
+		})
+	}
+}
+
+func TestRunFilesRemoteProbeTimeout(t *testing.T) {
+	e := newEnv(t)
+	e.lists(t)
+	e.cfg.PostHost = []string{e.hook(t, "post", "")}
+	e.ssh.SetHost("h1", 0, "", "", 5*time.Second)
+	start := time.Now()
+	r := Run(e.cfg, hosts("h1", "h2"), Options{Timeout: 200 * time.Millisecond})
+	if time.Since(start) > 4*time.Second {
+		t.Error("took too long")
+	}
+	h := r.Hosts[0]
+	if h.Status != StatusTimedOut || h.Error != "files list probe timed out after 200ms" {
+		t.Errorf("%v %q", h.Status, h.Error)
+	}
+	if h.Rsync != nil || h.PostHooks[0].Step != nil {
+		t.Error("rsync or post hook ran")
+	}
+	if r.Hosts[1].Status != StatusOK {
+		t.Errorf("h2: %v %q", r.Hosts[1].Status, r.Hosts[1].Error)
+	}
+}
+
+func TestRunFilesRemoteProbeInterrupted(t *testing.T) {
+	e := newEnv(t)
+	e.lists(t)
+	e.ssh.SetHost("h1", 0, "", "", 5*time.Second)
+	r := Run(e.cfg, hosts("h1", "h2"), Options{Ctx: cancelAfter(200 * time.Millisecond)})
+	if !r.Interrupted || len(r.Hosts) != 1 {
+		t.Fatalf("Interrupted=%v hosts=%d", r.Interrupted, len(r.Hosts))
+	}
+	if h := r.Hosts[0]; h.Status != StatusFailed || h.Error != "files list probe interrupted" || h.Rsync != nil {
+		t.Errorf("%v %q", h.Status, h.Error)
+	}
+}
+
+func TestRunFilesRemoteNoopStillProbes(t *testing.T) {
+	e := newEnv(t)
+	_, _, full, _ := e.lists(t)
+	e.cfg.PreHost = []string{e.hook(t, "pre", "")}
+	r := Run(e.cfg, hosts("h1"), Options{Noop: true})
+	if n := len(e.ssh.Calls()); n != 1 {
+		t.Fatalf("ssh calls = %d, want 1", n)
+	}
+	rs := e.fake.Calls()
+	if len(rs) != 1 || !slices.Contains(rs[0].Argv, "--dry-run") || !slices.Contains(rs[0].Argv, "--files-from=:"+full) {
+		t.Fatalf("rsync calls %+v", rs)
+	}
+	h := r.Hosts[0]
+	if h.FilesFrom != full || h.PreHooks[0].Step != nil || h.PreHooks[0].Args[3] != full {
+		t.Errorf("FilesFrom=%q PreHooks=%+v", h.FilesFrom, h.PreHooks)
+	}
+	if len(testutil.HookLog(t, e.hooks)) != 0 {
+		t.Error("hooks ran under noop")
+	}
+}
+
+func TestRunFilesLocalAndTreeFilesFrom(t *testing.T) {
+	e := newEnv(t)
+	if h := Run(e.cfg, hosts("h1"), Options{}).Hosts[0]; h.FilesFrom != "" || h.Probe != nil {
+		t.Errorf("tree: FilesFrom=%q Probe=%v", h.FilesFrom, h.Probe)
+	}
+	e.cfg.Mode, e.cfg.Source = config.ModeFilesLocal, "list with space.txt"
+	if h := Run(e.cfg, hosts("h1"), Options{}).Hosts[0]; h.FilesFrom != "list with space.txt" || h.Probe != nil {
+		t.Errorf("local: FilesFrom=%q Probe=%v", h.FilesFrom, h.Probe)
+	}
+	if n := len(e.ssh.Calls()); n != 0 {
+		t.Errorf("ssh calls = %d", n)
 	}
 }

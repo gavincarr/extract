@@ -352,3 +352,69 @@ func TestLoadRelativeFilesLocalResolvesAgainstRoot(t *testing.T) {
 	_, err = Load(writeConf(t, cwd, "EXTRACT_ROOT="+root+"\nEXTRACT_FILES_LOCAL=nope.txt\n"))
 	wantErr(t, err, filepath.Join(root, "nope.txt"))
 }
+
+func TestLoadFilesRemoteList(t *testing.T) {
+	tmp := t.TempDir()
+	base := "EXTRACT_ROOT=" + tmp + "\n"
+	tests := []struct {
+		name, line string
+		want       []string
+		filesArg   string
+	}{
+		{"one", "EXTRACT_FILES_REMOTE=/var/cache/etc.txt\n", []string{"/var/cache/etc.txt"}, "/var/cache/etc.txt"},
+		{"one-padded", "EXTRACT_FILES_REMOTE=\" /var/cache/etc.txt \"\n", []string{"/var/cache/etc.txt"}, "/var/cache/etc.txt"},
+		{"several", "EXTRACT_FILES_REMOTE=\"/var/cache/rpm.txt  /var/cache/deb.txt\t/x\"\n",
+			[]string{"/var/cache/rpm.txt", "/var/cache/deb.txt", "/x"}, ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c, err := Load(writeConf(t, t.TempDir(), base+tc.line))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.Mode != ModeFilesRemote {
+				t.Errorf("mode = %v", c.Mode)
+			}
+			if got := c.FilesRemote(); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("FilesRemote = %q, want %q", got, tc.want)
+			}
+			if c.FilesArg() != tc.filesArg {
+				t.Errorf("FilesArg = %q, want %q", c.FilesArg(), tc.filesArg)
+			}
+		})
+	}
+}
+
+func TestLoadFilesRemoteWhitespaceOnly(t *testing.T) {
+	tmp := t.TempDir()
+	base := "EXTRACT_ROOT=" + tmp + "\n"
+	_, err := Load(writeConf(t, tmp, base+"EXTRACT_FILES_REMOTE=\"  \t \"\n"))
+	wantErr(t, err, "EXTRACT_FILES_REMOTE is set but lists no paths")
+	// Set, though blank, still counts towards "only one of".
+	_, err = Load(writeConf(t, tmp, base+"EXTRACT_TREE=/etc\nEXTRACT_FILES_REMOTE=\" \"\n"))
+	wantErr(t, err, "only one of")
+}
+
+func TestShippedDistFilesRemoteListExample(t *testing.T) {
+	b, err := os.ReadFile("../../conf/extract.conf.dist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var line string
+	for _, l := range strings.Split(string(b), "\n") {
+		if strings.HasPrefix(l, `#EXTRACT_FILES_REMOTE="`) {
+			line = l[1:]
+		}
+	}
+	if line == "" {
+		t.Fatal("no quoted EXTRACT_FILES_REMOTE example in the dist file")
+	}
+	tmp := t.TempDir()
+	c, err := Load(writeConf(t, tmp, "EXTRACT_ROOT="+tmp+"\n"+line+"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(c.FilesRemote()); n < 2 {
+		t.Errorf("FilesRemote = %q, want several paths", c.FilesRemote())
+	}
+}

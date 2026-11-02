@@ -63,8 +63,10 @@ func (f *FakeRsync) SetHost(host string, exit int, stderr string, sleep time.Dur
 }
 
 // Calls returns the recorded invocations in order.
-func (f *FakeRsync) Calls() []RsyncCall {
-	data, err := os.ReadFile(filepath.Join(f.CtlDir, "calls"))
+func (f *FakeRsync) Calls() []RsyncCall { return readCalls(filepath.Join(f.CtlDir, "calls")) }
+
+func readCalls(path string) []RsyncCall {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil
 	}
@@ -77,6 +79,86 @@ func (f *FakeRsync) Calls() []RsyncCall {
 		calls = append(calls, RsyncCall{Dir: parts[0], Argv: parts[1:]})
 	}
 	return calls
+}
+
+// FakeSSH is a stand-in ssh binary placed first on PATH. By default it runs
+// the remote command locally with sh -c, as sshd would hand it to the login
+// shell, so a probe sees real local files. SetHost overrides that per host.
+type FakeSSH struct{ BinDir, CtlDir string }
+
+// SSHCall is one recorded invocation of the fake ssh.
+type SSHCall = RsyncCall
+
+const fakeSSHScript = `#!/bin/sh
+{
+  printf '%s' "$PWD"
+  for a; do printf '\037%s' "$a"; done
+  printf '\n'
+} >> "$FAKE_SSH_CTL/calls"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -[BbcDEeFIiJLlmOoPpQRSWw]) shift 2 ;;
+    -*) shift ;;
+    *) break ;;
+  esac
+done
+host="${1#*@}"
+shift
+ctl="$FAKE_SSH_CTL/$host"
+if [ -f "$ctl.exit" ]; then
+  [ -f "$ctl.stderr" ] && cat "$ctl.stderr" >&2
+  if [ -f "$ctl.sleep" ]; then sleep "$(cat "$ctl.sleep")"; fi
+  [ -f "$ctl.stdout" ] && cat "$ctl.stdout"
+  exit "$(cat "$ctl.exit")"
+fi
+exec sh -c "$*"
+`
+
+// NewFakeSSH installs a fake ssh on PATH for the duration of the test. The
+// fake skips options, takes the next argument as [user@]host and joins the
+// rest into the remote command, as ssh does.
+func NewFakeSSH(t *testing.T) *FakeSSH {
+	t.Helper()
+	f := &FakeSSH{BinDir: t.TempDir(), CtlDir: t.TempDir()}
+	if err := os.WriteFile(filepath.Join(f.BinDir, "ssh"), []byte(fakeSSHScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", f.BinDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("FAKE_SSH_CTL", f.CtlDir)
+	return f
+}
+
+// SetHost makes the fake, for one host name (without user@), print stderr,
+// sleep, print stdout and exit with exit instead of running the command.
+func (f *FakeSSH) SetHost(host string, exit int, stdout, stderr string, sleep time.Duration) {
+	write := func(ext, s string) {
+		if err := os.WriteFile(filepath.Join(f.CtlDir, host+"."+ext), []byte(s), 0o644); err != nil {
+			panic(err)
+		}
+	}
+	write("exit", strconv.Itoa(exit))
+	if stdout != "" {
+		write("stdout", stdout)
+	}
+	if stderr != "" {
+		write("stderr", stderr)
+	}
+	if sleep > 0 {
+		write("sleep", fmt.Sprintf("%.3f", sleep.Seconds()))
+	}
+}
+
+// Calls returns the recorded invocations in order.
+func (f *FakeSSH) Calls() []SSHCall { return readCalls(filepath.Join(f.CtlDir, "calls")) }
+
+// WriteFile writes content to dir/name and returns its path.
+func WriteFile(t *testing.T, dir, name, content string) string {
+	t.Helper()
+	p := filepath.Join(dir, name)
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return p
 }
 
 // WriteHook writes an executable script dir/name. It first appends
