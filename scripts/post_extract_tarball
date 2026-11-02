@@ -3,6 +3,11 @@
 # Post_extract script, packing extracted files into a date-stamped tarball
 #
 
+die() {
+  echo $*
+  exit 99
+}
+
 ROOT=$1
 CONFIG=$2
 HOST=$3

@@ -35,11 +35,10 @@ if [ "$EXTRACT_GIT_REPO_MODE" == HOST ]; then
   test -d .git || $GIT init || die "git init failed"
 fi
 
-# git doesn't seem to have a simple way to tell if there are outstanding changes 
-# to commit. 'git status .' reports untracked parent-sibling directories, for instance.
-# So just commit blindly in the knowledge that empty commits won't go through.
-
-# Add and commit any changes (git commit -a doesn't work with paths, apparently)
-$GIT add . && \
-$GIT commit -m "Changes to '$(basename $PWD)' to $(date '+%Y-%m-%d %H:%M:%S')." .
-
+# Add and commit any changes (git commit -a doesn't work with paths, apparently).
+# Only commit if something is staged, as 'git commit' exits non-zero when
+# there is nothing to commit.
+$GIT add . || die "git add failed"
+if ! $GIT diff --cached --quiet -- .; then
+  $GIT commit -m "Changes to '$(basename $PWD)' to $(date '+%Y-%m-%d %H:%M:%S')." . || die "git commit failed"
+fi

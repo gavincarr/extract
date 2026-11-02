@@ -20,7 +20,9 @@ if [ -f ~/.ssh/id_?sa ]; then
     eval $(ssh-agent -s | tee ~/.shag.$HOSTNAME)
   fi
 
-  ssh-add -l | grep -q 'no identities' && ssh-add
+  if ssh-add -l | grep -q 'no identities'; then
+    ssh-add || die "ssh-add failed"
+  fi
 
 else
   die "No ~/.ssh/id_?sa keys found?!"
