@@ -24,6 +24,7 @@ test -d "$EXTRACT_ROOT" || die "EXTRACT_ROOT '$EXTRACT_ROOT' not found or not a 
 
 if [ "$EXTRACT_GIT_REPO_MODE" == 'ALL' ]; then
   test -d $EXTRACT_ROOT/.git || die "$EXTRACT_ROOT/.git not found"
+  # Never add -p here: the repo holds copies of remote secrets, and this output is mailed.
   git --git-dir $EXTRACT_ROOT/.git log --stat --since=yesterday
 
 elif [ "$EXTRACT_GIT_REPO_MODE" == 'HOST' ]; then
@@ -32,6 +33,7 @@ elif [ "$EXTRACT_GIT_REPO_MODE" == 'HOST' ]; then
     test -d $i/.git || continue
     # Would be nice to use --quiet here, but doesn't seem to work (in 1.7.1)
     git --git-dir=$i/.git log --since=yesterday --exit-code >/dev/null && continue
+    # Never add -p here: the repo holds copies of remote secrets, and this output is mailed.
     git --no-pager --git-dir=$i/.git log --stat --since=yesterday
     echo
   done

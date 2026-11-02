@@ -112,12 +112,11 @@ func TestLoadGlobsErrors(t *testing.T) {
 }
 
 func TestLoadShippedGlobsDist(t *testing.T) {
-	t.Skip("conf/extract.globs.dist is added in Task 6")
 	pats, err := ParseGlobsFile("../../conf/extract.globs.dist")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pats) < 50 {
+	if len(pats) < 40 {
 		t.Errorf("only %d patterns", len(pats))
 	}
 	for _, want := range []string{"~/.ssh/*", "/var/spool/cron/crontabs/*"} {

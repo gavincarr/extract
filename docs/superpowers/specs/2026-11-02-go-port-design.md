@@ -88,9 +88,11 @@ conventions (`internal/version/VERSION`, embedded).
   valid shell. Unknown keys are ignored; hooks use their own keys, such
   as `EXTRACT_GIT_REPO_MODE`.
 - Keys extract reads: `EXTRACT_ROOT` (required), `EXTRACT_HOSTS`,
-  `EXTRACT_HOST_CMD`, exactly one of `EXTRACT_TREE` /
-  `EXTRACT_FILES_REMOTE` / `EXTRACT_FILES_LOCAL`, `PRE_EXTRACT_SETUP`,
-  `PRE_EXTRACT_HOST`, `POST_EXTRACT_HOST` and `POST_EXTRACT_TEARDOWN`.
+  `EXTRACT_HOST_CMD`, exactly one source (`EXTRACT_TREE`,
+  `EXTRACT_FILES_LOCAL`, or "remote files": `EXTRACT_FILES_REMOTE`
+  and/or globs from `EXTRACT_FILES_GLOBS` / `EXTRACT_FILES_GLOBS_FILE`),
+  `PRE_EXTRACT_SETUP`, `PRE_EXTRACT_HOST`, `POST_EXTRACT_HOST` and
+  `POST_EXTRACT_TEARDOWN`.
   The four hook keys are comma-separated lists, with whitespace around
   commas ignored.
 - `EXTRACT_FILES_REMOTE` is a whitespace-separated list of remote paths
@@ -101,6 +103,13 @@ conventions (`internal/version/VERSION`, embedded).
   remote. See rsync invocation for how one is chosen per host.
   *(Added in 0.9.0: RPM- and DEB-based hosts generate their lists with
   different tools under different names.)*
+- `EXTRACT_FILES_GLOBS` (a quoted, whitespace-separated list) and
+  `EXTRACT_FILES_GLOBS_FILE` (a local file, one pattern per line, a
+  relative path taken against the config file's directory) select extra
+  files per host by `/` or `~/` glob. Either or both may be set, with or
+  without `EXTRACT_FILES_REMOTE`; globs with `EXTRACT_TREE` or
+  `EXTRACT_FILES_LOCAL` is a config error. *(Added in 0.10.0; see
+  `2026-11-02-files-globs-design.md`.)*
 - New optional key `EXTRACT_SCRIPTS_DIR`, defaulting to
   `/etc/extract/scripts`. *(My call. It replaces Perl's
   `$RealBin/../etc/scripts` fallback, which never matched the repo
@@ -140,6 +149,17 @@ The rsync commands must match the Perl version's (via `File::Rsync`):
   `HostResult.Probe`, the chosen path on `HostResult.FilesFrom`.
 - `EXTRACT_FILES_LOCAL=/p` → `--files-from=/p`, source
   `[user@]host:/`, destination `host`
+- globs set (with or without `EXTRACT_FILES_REMOTE`, any number of
+  paths) → instead of the probe, one ssh call per host runs a POSIX sh
+  list-building script (`sh -c '<script>'`) with the host's manifest
+  (`$EXTRACT_ROOT/.extract-state/<host>.files`) on stdin, at the same
+  point and under the same rules as the probe (`-t`, `-n`, failure skips
+  the host's hooks and rsync). rsync then gets the base flags plus
+  `--delete-missing-args --files-from=<local temp file>` (written outside
+  the host directory and removed afterwards), source `[user@]host:/`,
+  destination `host`. The manifest is rewritten only after rsync exits 0
+  or 24, never under `-n`. Needs rsync >= 3.1.0 on both ends. *(Added in
+  0.10.0; see `2026-11-02-files-globs-design.md`.)*
 - run with the working directory set to `EXTRACT_ROOT`; the host
   directory is created if missing
 - `-n` adds `--dry-run`
@@ -157,11 +177,14 @@ The rsync commands must match the Perl version's (via `File::Rsync`):
     `$3=<host> $4=<files path>`. `$4` is the files list given to rsync:
     the `EXTRACT_FILES_REMOTE` path chosen for that host (the value
     itself when it lists one path), the `EXTRACT_FILES_LOCAL` value, or
-    an empty string in tree mode.
+    an empty string in tree mode. With globs it is the chosen
+    `EXTRACT_FILES_REMOTE` path, or an empty string when globs are used
+    alone or that host had no list; never the temp file rsync is given.
   - `$2` must be the config path as an absolute path, because hooks
     `source` it after `cd`-ing.
 - **Order.** Setup hooks run once. Then, for each host: the files-list
-  probe (several `EXTRACT_FILES_REMOTE` paths only), pre-host hooks,
+  probe (several `EXTRACT_FILES_REMOTE` paths only) or, with globs, the
+  list-building step, pre-host hooks,
   rsync, post-host hooks. Teardown hooks run once at the end. A failed
   probe skips both pre- and post-host hooks.
 - **Environment and working directory.** Hooks inherit extract's

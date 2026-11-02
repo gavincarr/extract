@@ -31,14 +31,33 @@ CGO_ENABLED=1 go test -race ./...                # -race needs cgo, which is off
   `main.go` parses, sets up the logger and the signal context, and
   dispatches on `kctx.Command()` to a method on `app` (`app.go`: shared
   state plus `loadConfig`); `sync.go` wires config, hosts, runner and
-  reporter and maps results to exit codes. A new subcommand is a struct
+  reporter and maps results to exit codes. After loading the config it
+  warns (`a.log.Warn`, so stderr at every verbosity, and under `-n`)
+  when `EXTRACT_ROOT` has any group or other permission bit: the tree
+  holds copies of remote secrets and `.git/objects` gets umask modes, so
+  the root's own mode is the only fence. It never changes the exit code.
+  E2e tests must therefore use a `0700` root (`rootDir` in
+  `e2e_test.go`); `t.TempDir()` subdirectories follow the umask. A new subcommand is a struct
   field with `cmd:""` on `CLI`, an `app` method, and a case in the switch.
   Every kong field has an explicit `name:` tag; `-v` is an `int` counter.
 - `internal/config`: loads the shell-style config with its own literal
   parser (`parse.go`: quotes stripped, no `$` expansion, like
   Config::Tiny) and validates it, including resolving and checking hook
-  paths at load time.
-- `internal/extract`: `ResolveHosts`, `RsyncArgs` and `Run`. With several
+  paths at load time. `globs.go` loads `EXTRACT_FILES_GLOBS` and
+  `EXTRACT_FILES_GLOBS_FILE`; `TestLoadShippedGlobsDist` parses
+  `conf/extract.globs.dist`.
+- `internal/extract`: `ResolveHosts`, `RsyncArgs` and `Run`. With globs,
+  `listscript.go` builds the one-line POSIX sh script sent as
+  `ssh ... sh -c '<script>'` (no newline, no `!`; must run under dash and
+  bash). It replaces the 0.9.0 probe for that host, reads the manifest
+  on stdin and ends its output with an `E` sentinel. `manifest.go` keeps
+  `$EXTRACT_ROOT/.extract-state/<host>.files` (dir `0700`, file `0600`,
+  written atomically): the paths extract has extracted, so later runs
+  list them and `--delete-missing-args` deletes copies of files gone
+  from the host. Deletion is limited to manifest paths, which keeps
+  hook-created files (tarballs) safe; the manifest is rewritten only
+  after rsync exits 0 or 24, never under `-n`. Host names can't start
+  with `.`, so no host collides with `.extract-state`. With several
   `EXTRACT_FILES_REMOTE` paths, `runHost` first runs an ssh probe
   (`probe.go`: `ProbeArgs`, a one-line `test -s` loop) to choose the
   host's list; a failed probe skips pre/post-host hooks and rsync.
@@ -65,7 +84,8 @@ Four hook keys, each a comma-separated list: `PRE_EXTRACT_SETUP` and
 `POST_EXTRACT_TEARDOWN` (once per run), `PRE_EXTRACT_HOST` and
 `POST_EXTRACT_HOST` (per host). Args are `$1=EXTRACT_ROOT $2=config path`
 (absolute), plus `$3=host $4=files list path or ""` for per-host hooks
-(the per-host chosen path when `EXTRACT_FILES_REMOTE` lists several).
+(the per-host chosen path when `EXTRACT_FILES_REMOTE` lists several; with
+globs, that chosen path or "", never the temp list file rsync is given).
 Changing the arg order breaks user scripts. Hooks are exec'd directly with
 `EXTRACT_ROOT` as cwd. Non-zero exit is a failure and stops the rest of that
 list; each hook has `EXTRACT_HOOK_TIMEOUT`. Failure rules that are easy to

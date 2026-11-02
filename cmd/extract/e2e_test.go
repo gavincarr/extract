@@ -3,10 +3,13 @@ package main
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -15,10 +18,22 @@ import (
 	"github.com/gavincarr/extract/internal/testutil"
 )
 
+// rootDir returns a new EXTRACT_ROOT with mode 0700. t.TempDir's
+// subdirectories follow the umask, which would trigger the permission
+// warning.
+func rootDir(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.Chmod(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
 // writeConf writes a tree-mode config and returns its path.
 func writeConf(t *testing.T, extra string) string {
 	t.Helper()
-	root := t.TempDir()
+	root := rootDir(t)
 	body := "EXTRACT_ROOT=" + root + "\nEXTRACT_TREE=/etc\n" + extra
 	p := filepath.Join(t.TempDir(), "extract.conf")
 	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
@@ -317,7 +332,7 @@ func writeRemoteListsConf(t *testing.T, extra string) (conf, full string) {
 	missing := filepath.Join(d, "missing.txt")
 	empty := testutil.WriteFile(t, d, "empty.txt", "")
 	full = testutil.WriteFile(t, d, "deb.txt", "/etc/hosts\n")
-	body := "EXTRACT_ROOT=" + t.TempDir() + "\nEXTRACT_FILES_REMOTE=\"" + missing + " " + empty + " " + full + "\"\n" + extra
+	body := "EXTRACT_ROOT=" + rootDir(t) + "\nEXTRACT_FILES_REMOTE=\"" + missing + " " + empty + " " + full + "\"\n" + extra
 	conf = filepath.Join(t.TempDir(), "extract.conf")
 	if err := os.WriteFile(conf, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
@@ -372,5 +387,120 @@ func TestE2EFilesRemoteProbeFailure(t *testing.T) {
 	}
 	if calls := f.Calls(); len(calls) != 1 || calls[0].Argv[len(calls[0].Argv)-1] != "h2" {
 		t.Errorf("rsync calls %+v", calls)
+	}
+}
+
+func TestE2EPermWarning(t *testing.T) {
+	testutil.NewFakeRsync(t)
+	root := rootDir(t)
+	conf := testutil.WriteFile(t, t.TempDir(), "extract.conf",
+		"EXTRACT_ROOT="+root+"\nEXTRACT_TREE=/etc\nEXTRACT_HOSTS=h1\n")
+
+	if err := os.Chmod(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errs := runCLI("-c", conf)
+	if code != 0 || out != "" ||
+		!strings.Contains(errs, "warning: EXTRACT_ROOT "+root+" is accessible by group or others (mode 0755)") {
+		t.Fatalf("0755: code=%d stdout=%q stderr=%q", code, out, errs)
+	}
+	// Printed under -n too, and the run still happens.
+	code, out, errs = runCLI("-c", conf, "-n")
+	if code != 0 || !strings.Contains(out, "would rsync:") ||
+		!strings.Contains(errs, "is accessible by group or others (mode 0755)") {
+		t.Fatalf("0755 -n: code=%d stdout=%q stderr=%q", code, out, errs)
+	}
+
+	if err := os.Chmod(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errs = runCLI("-c", conf)
+	if code != 0 || out != "" || errs != "" {
+		t.Fatalf("0700: code=%d stdout=%q stderr=%q", code, out, errs)
+	}
+}
+
+// requireRsync31 skips the test unless a real rsync >= 3.1 is on PATH.
+func requireRsync31(t *testing.T) {
+	t.Helper()
+	b, err := exec.Command("rsync", "--version").Output()
+	if err != nil {
+		t.Skipf("no rsync: %v", err)
+	}
+	m := regexp.MustCompile(`version\s+(\d+)\.(\d+)`).FindSubmatch(b)
+	if m == nil {
+		t.Skipf("can't parse rsync version from %q", b)
+	}
+	major, _ := strconv.Atoi(string(m[1]))
+	minor, _ := strconv.Atoi(string(m[2]))
+	if major < 3 || major == 3 && minor < 1 {
+		t.Skipf("rsync %d.%d < 3.1", major, minor)
+	}
+	t.Logf("using rsync %d.%d", major, minor)
+}
+
+func TestE2EGlobsRealRsync(t *testing.T) {
+	requireRsync31(t)
+	// No fake rsync: the real one runs the fake ssh, which runs
+	// "rsync --server ..." locally.
+	s := testutil.NewFakeSSH(t)
+	home := filepath.Join(t.TempDir(), "home")
+	for _, d := range []string{".ssh", ".d"} {
+		if err := os.MkdirAll(filepath.Join(home, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.SetPasswd(t, "bob:x:1000:1000:Bob:"+home+":/bin/sh\n")
+	keys := testutil.WriteFile(t, filepath.Join(home, ".ssh"), "authorized_keys", "ssh-ed25519 AAAA bob\n")
+	other := testutil.WriteFile(t, filepath.Join(home, ".d"), "f", "gone with its directory\n")
+
+	root := rootDir(t)
+	hooks := t.TempDir()
+	// Appends, so a copy deleted and recreated would hold only one line.
+	hook := testutil.WriteHook(t, hooks, "post", `echo tarball >> "$1/$3/keep.tar.gz"`)
+	conf := testutil.WriteFile(t, t.TempDir(), "extract.conf",
+		"EXTRACT_ROOT="+root+"\nEXTRACT_HOSTS=localhost\n"+
+			"EXTRACT_FILES_GLOBS=\"~/.ssh/* ~/.d/*\"\nPOST_EXTRACT_HOST="+hook+"\n")
+	local := func(p string) string { return filepath.Join(root, "localhost", p) }
+	keep := filepath.Join(root, "localhost", "keep.tar.gz")
+
+	code, out, errs := runCLI("-c", conf)
+	if code != 0 || out != "" || errs != "" {
+		t.Fatalf("run 1: code=%d stdout=%q stderr=%q", code, out, errs)
+	}
+	for _, p := range []string{keys, other} {
+		if b, err := os.ReadFile(local(p)); err != nil {
+			t.Fatalf("run 1: %v", err)
+		} else if want, _ := os.ReadFile(p); string(b) != string(want) {
+			t.Errorf("run 1: %s = %q, want %q", local(p), b, want)
+		}
+	}
+
+	// -n builds the list and shows the plan, but changes nothing.
+	code, out, errs = runCLI("-c", conf, "-n")
+	if code != 0 || errs != "" || !strings.Contains(out, "built files list:") ||
+		!strings.Contains(out, "--delete-missing-args") {
+		t.Fatalf("noop: code=%d stdout=%q stderr=%q", code, out, errs)
+	}
+
+	// Remove the key, and a tracked file together with its directory.
+	if err := os.Remove(keys); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Dir(other)); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errs = runCLI("-c", conf)
+	if code != 0 || out != "" || errs != "" {
+		t.Fatalf("run 2: code=%d stdout=%q stderr=%q", code, out, errs)
+	}
+	if _, err := os.Lstat(local(keys)); !os.IsNotExist(err) {
+		t.Errorf("local copy of deleted key kept: %v", err)
+	}
+	if _, err := os.Lstat(local(other)); !os.IsNotExist(err) {
+		t.Errorf("local copy of file in deleted directory kept: %v", err)
+	}
+	if b, err := os.ReadFile(keep); err != nil || string(b) != "tarball\ntarball\n" {
+		t.Errorf("hook-created %s: %q, %v", keep, b, err)
 	}
 }

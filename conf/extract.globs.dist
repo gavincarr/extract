@@ -1,0 +1,71 @@
+# Access and persistence: the highest review value. ~/.ssh/* also
+# catches keys, known_hosts, ~/.ssh/rc and ~/.ssh/environment.
+~/.ssh/*
+~/.k5login
+~/.rhosts
+~/.shosts
+~/.forward
+~/.config/systemd/user/*
+# User crontabs: RHEL keeps them in /var/spool/cron, Debian in
+# /var/spool/cron/crontabs. Directories are skipped, so both are safe.
+/var/spool/cron/*
+/var/spool/cron/crontabs/*
+
+# Shell startup: persistence vectors, and needed for a restore. Listed
+# one by one, because ~/.bash* would also match .bash_history.
+~/.profile
+~/.bashrc
+~/.bash_profile
+~/.bash_login
+~/.bash_logout
+~/.bash_aliases
+~/.zshrc
+~/.zshenv
+~/.zprofile
+~/.zlogin
+~/.cshrc
+~/.tcshrc
+~/.login
+
+# Credentials: tiny, and painful to rebuild.
+~/.netrc
+~/.pgpass
+~/.my.cnf
+~/.git-credentials
+~/.docker/config.json
+~/.kube/config
+~/.aws/config
+~/.aws/credentials
+~/.s3cfg
+~/.npmrc
+~/.pypirc
+~/.vault-token
+~/.config/rclone/rclone.conf
+
+# GnuPG: enough to restore a keyring. random_seed is left out because
+# it changes on every use.
+~/.gnupg/*.conf
+~/.gnupg/pubring.kbx
+~/.gnupg/pubring.gpg
+~/.gnupg/secring.gpg
+~/.gnupg/trustdb.gpg
+~/.gnupg/sshcontrol
+~/.gnupg/private-keys-v1.d/*
+~/.gnupg/openpgp-revocs.d/*
+
+# Tool config: optional, but rarely noisy.
+~/.gitconfig
+~/.config/git/config
+~/.vimrc
+~/.tmux.conf
+~/.screenrc
+~/.inputrc
+
+# Left out on purpose:
+# - History files (.bash_history, .zsh_history, .mysql_history,
+#   .psql_history, .lesshst, .viminfo): noisy daily, full of secrets typed
+#   at the prompt, and little use for a restore.
+# - ~/.config/* wholesale: mostly application state, so name specific
+#   files instead.
+# - Caches and data: ~/.cache, ~/.local/share, browser and IDE profiles,
+#   ~/.kube/cache, and toolchains (.cargo, .rustup, .npm, go/).

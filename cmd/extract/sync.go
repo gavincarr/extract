@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"time"
 
@@ -24,6 +25,7 @@ func (a *app) sync(c *SyncCmd) int {
 	if cfg == nil {
 		return code
 	}
+	a.warnRootPerms(cfg.Root)
 	hosts, err := extract.ResolveHosts(a.ctx, c.Hosts, cfg)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -45,4 +47,17 @@ func (a *app) sync(c *SyncCmd) int {
 	}
 	report.Report(a.log, r)
 	return report.ExitCode(r)
+}
+
+// warnRootPerms warns, without failing, when root grants any group or other
+// permission. rsync keeps each file's mode in the tree, but git's object
+// store uses the umask, so root's own mode is what keeps local users out.
+func (a *app) warnRootPerms(root string) {
+	fi, err := os.Stat(root)
+	if err != nil {
+		return // config.Load has just checked it; rsync will report anything new
+	}
+	if mode := fi.Mode().Perm(); mode&0o077 != 0 {
+		a.log.Warn(fmt.Sprintf("warning: EXTRACT_ROOT %s is accessible by group or others (mode %04o); it holds copies of remote secrets, so chmod 700 it (see README \"Sensitive data\")", root, mode))
+	}
 }

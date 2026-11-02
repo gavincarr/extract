@@ -18,6 +18,10 @@
 #EXTRACT_FILES_LOCAL=/etc/extract/synclist.txt
 # Tree on the remote server that should be extracted
 #EXTRACT_TREE=/etc
+# Extra files selected by glob on each host (absolute or ~/ patterns;
+# ~/ means every home directory in the host's passwd)
+#EXTRACT_FILES_GLOBS_FILE=extract.globs
+#EXTRACT_FILES_GLOBS="~/.ssh/* /var/spool/cron/*"
 
 # Pre-process scripts
 # (scripts in /etc/extract/scripts, or absolute paths; comma-separate if more than one)
