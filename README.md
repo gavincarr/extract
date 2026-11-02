@@ -22,13 +22,14 @@ go build ./cmd/extract
 ```
 
 Installed layout (the config line is for a first install only and never
-overwrites an existing config):
+overwrites an existing config; `install -b` keeps any existing hook it
+replaces as `<name>~`):
 
 ```shell
 install -m 755 extract /usr/bin/extract
 install -d /etc/extract/scripts
 [ -e /etc/extract/extract.conf ] || install -m 644 conf/extract.conf.dist /etc/extract/extract.conf
-find scripts -type f ! -name '*.go' -exec install -m 755 {} /etc/extract/scripts/ \;
+install -b -m 755 scripts/pre_extract_* scripts/post_extract_* /etc/extract/scripts/
 $EDITOR /etc/extract/extract.conf
 ```
 
@@ -186,7 +187,9 @@ Exit codes:
   failed, or the run was interrupted. On Ctrl-C (SIGINT), SIGTERM or
   SIGHUP extract kills the running rsync or hook (its whole process
   group), starts nothing further (no more hosts, no teardown hooks),
-  reports `run interrupted: N of M hosts attempted` and exits 1.
+  reports `run interrupted: N of M hosts attempted` and exits 1. An
+  interrupt while `EXTRACT_HOST_CMD` is still running kills that command
+  and exits 1 with `extract: host command interrupted: context canceled`.
 - `2`: usage or configuration error; nothing was extracted. This covers
   bad flags, an unreadable config, a missing or unwritable
   `EXTRACT_ROOT`, bad source keys (none set, or more than one), an
@@ -219,7 +222,15 @@ Also worth knowing:
 
 Three shipped hooks were fixed, and the installed copies in
 `/etc/extract/scripts` are separate from the repo, so **redeploy them**
-(`find scripts -type f ! -name '*.go' -exec install -m 755 {} /etc/extract/scripts/ \;`):
+— check first whether you've changed any of them locally, since
+redeploying replaces them:
+
+```shell
+diff -ru /etc/extract/scripts scripts | less
+install -b -m 755 scripts/pre_extract_* scripts/post_extract_* /etc/extract/scripts/
+```
+
+`install -b` keeps each replaced hook as `<name>~`. The fixes:
 
 - `post_extract_git` exited 1 whenever there was nothing to commit; it
   now commits only if something is staged.
