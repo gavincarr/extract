@@ -262,7 +262,7 @@ Tree on the remote server which should be extracted in its entirety.
 
 Extract also supports running arbitrary scripts before and after file
 extraction. It ships with example scripts to load ssh keys before
-extraction, and to commit extracted files to git or bzr repositories.
+extraction, and to commit extracted files to a git repository.
 
 Hook scripts can be bare names, in which case they are expected to be
 found in /etc/extract/scripts, or they can be fully qualified paths.

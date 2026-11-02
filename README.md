@@ -13,9 +13,7 @@ extract on remote RedHat/CentOS machines.
 Setup
 -----
 
-RPMs for RedHat/CentOS 5/6 are available from http://ofn.me/ofrepo.
-
-Or you can run from a git checkout, as follows:
+Run from a git checkout, as follows:
 
 ```shell
 git clone https://github.com/gavincarr/extract/

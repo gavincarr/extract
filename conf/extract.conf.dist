@@ -27,7 +27,6 @@
 # (scripts in /etc/extract/scripts, or absolute paths; comma-separate if more than one)
 # POST_EXTRACT_HOST - run after each individual host extract
 #POST_EXTRACT_HOST=post_extract_tarball
-#POST_EXTRACT_HOST=post_extract_bzr
 #POST_EXTRACT_HOST=post_extract_git
 #POST_EXTRACT_HOST=post_extract_git,post_extract_touch
 # POST_EXTRACT_TEARDOWN - run once only, after all extracts are completed
