@@ -49,6 +49,9 @@ func TestRunHealthy(t *testing.T) {
 	e.cfg.PostHost = []string{e.hook(t, "post", "")}
 	e.cfg.PostTeardown = []string{e.hook(t, "teardown", "")}
 	r := Run(e.cfg, hosts("h1", "h2"), Options{})
+	if len(r.Hosts) != 2 {
+		t.Fatalf("got %d hosts, want 2", len(r.Hosts))
+	}
 	R, C := e.root, "/cfg/extract.conf"
 	want := []string{
 		"setup " + R + " " + C + " cwd=" + R,
@@ -127,6 +130,9 @@ func TestRunHookListStopsAtFirstFailure(t *testing.T) {
 	e.cfg.PostHost = []string{e.hook(t, "a", "exit 1"), e.hook(t, "b", "")}
 	r := Run(e.cfg, hosts("h1"), Options{})
 	h := r.Hosts[0]
+	if len(h.PostHooks) != 2 {
+		t.Fatalf("got %d post hooks, want 2", len(h.PostHooks))
+	}
 	if h.Status != StatusFailed || h.PostHooks[0].Step == nil || h.PostHooks[1].Step != nil {
 		t.Errorf("%+v", h)
 	}
@@ -184,6 +190,22 @@ func TestRunRsyncTimeoutSkipsPostHooks(t *testing.T) {
 	}
 	if len(testutil.HookLog(t, e.hooks)) != 0 {
 		t.Error("post hook ran")
+	}
+	if len(h.PostHooks) != 1 || h.PostHooks[0].Step != nil {
+		t.Errorf("post hook should be listed but not run: %+v", h.PostHooks)
+	}
+}
+
+func TestRunRsyncFailureAndPostHookFailure(t *testing.T) {
+	e := newEnv(t)
+	e.cfg.PostHost = []string{e.hook(t, "post", "exit 1")}
+	e.fake.SetHost("h1", 23, "link_stat failed", 0)
+	h := Run(e.cfg, hosts("h1"), Options{}).Hosts[0]
+	if h.Status != StatusFailed || h.Error != "rsync exited 23" {
+		t.Errorf("%v %q", h.Status, h.Error)
+	}
+	if len(h.PostHooks) != 1 || !h.PostHooks[0].Failed() {
+		t.Errorf("post hook should have failed: %+v", h.PostHooks)
 	}
 }
 

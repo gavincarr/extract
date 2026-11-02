@@ -91,8 +91,12 @@ func TestRunTimeoutEscalatesToSIGKILL(t *testing.T) {
 	if !r.TimedOut {
 		t.Fatalf("expected timeout: %+v", r)
 	}
-	if d := time.Since(start); d > 3*time.Second {
+	d := time.Since(start)
+	if d > 3*time.Second {
 		t.Fatalf("took too long: %v", d)
+	}
+	if d < 200*time.Millisecond+killGrace {
+		t.Fatalf("returned in %v, before timeout + grace (%v)", d, 200*time.Millisecond+killGrace)
 	}
 }
 

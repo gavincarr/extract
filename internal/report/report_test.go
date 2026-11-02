@@ -70,6 +70,31 @@ func failedRun() *extract.Result {
 	}}
 }
 
+func failedPair(withArgv bool) *extract.Result {
+	h1 := okHost("h1")
+	h2 := extract.HostResult{Host: host("h2"), Status: extract.StatusFailed, Error: "rsync exited 23",
+		Rsync: &proc.StepResult{ExitCode: 23, Stderr: "rsync: link_stat x failed"}}
+	if withArgv {
+		h2.Rsync.Argv = []string{"rsync", "--archive", "--copy-links", "--delete", "--rsh=ssh -o BatchMode=yes", "--quiet", "h2:/etc", "h2"}
+	}
+	return &extract.Result{Hosts: []extract.HostResult{h1, h2}}
+}
+
+func TestReportFailuresVV(t *testing.T) {
+	o, e := run(failedPair(false), 2)
+	contains(t, "stdout", o, "h1 ok (1.2s)")
+	if strings.Contains(o, "h2 ok") {
+		t.Errorf("stdout reports h2 ok: %q", o)
+	}
+	contains(t, "stderr", e, "h2: rsync exited 23")
+}
+
+func TestReportFailuresVVV(t *testing.T) {
+	o, e := run(failedPair(true), 3)
+	contains(t, "stdout", o, "+ rsync --archive --copy-links --delete '--rsh=ssh -o BatchMode=yes' --quiet h2:/etc h2")
+	contains(t, "stderr", e, "h2: rsync exited 23\n  rsync: link_stat x failed\n")
+}
+
 func TestReportFailures(t *testing.T) {
 	o, e := run(failedRun(), 0)
 	if o != "" {

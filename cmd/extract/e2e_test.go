@@ -6,6 +6,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -33,11 +34,14 @@ func runCLI(args ...string) (code int, stdout, stderr string) {
 }
 
 func TestE2EHealthyIsSilent(t *testing.T) {
-	testutil.NewFakeRsync(t)
+	f := testutil.NewFakeRsync(t)
 	conf := writeConf(t, "EXTRACT_HOSTS=\"h1 h2\"\n")
 	code, out, errs := runCLI("-c", conf)
 	if code != 0 || out != "" || errs != "" {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errs)
+	}
+	if n := len(f.Calls()); n != 2 {
+		t.Fatalf("rsync called %d times, want 2", n)
 	}
 }
 
@@ -98,6 +102,56 @@ func TestE2ENoopPrintsPlan(t *testing.T) {
 	code, out, errs := runCLI("-c", conf, "-n")
 	if code != 0 || errs != "" ||
 		!strings.Contains(out, "would rsync:") || !strings.Contains(out, "--dry-run") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errs)
+	}
+}
+
+func TestE2ENoopSkipsHooksAndDryRuns(t *testing.T) {
+	f := testutil.NewFakeRsync(t)
+	hooks := t.TempDir()
+	hook := testutil.WriteHook(t, hooks, "post", "exit 0")
+	conf := writeConf(t, "EXTRACT_HOSTS=\"h1 h2\"\nPOST_EXTRACT_HOST="+hook+"\n")
+	code, out, errs := runCLI("-c", conf, "-n")
+	if code != 0 || errs != "" {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errs)
+	}
+	calls := f.Calls()
+	if len(calls) == 0 {
+		t.Fatal("no rsync calls")
+	}
+	for _, c := range calls {
+		if !slices.Contains(c.Argv, "--dry-run") {
+			t.Errorf("argv lacks --dry-run: %q", c.Argv)
+		}
+	}
+	if l := testutil.HookLog(t, hooks); len(l) != 0 {
+		t.Errorf("hook ran: %q", l)
+	}
+	if !strings.Contains(out, "would run post_extract_host:") {
+		t.Errorf("stdout = %q", out)
+	}
+}
+
+func TestE2ETimeoutFlagPassedThrough(t *testing.T) {
+	f := testutil.NewFakeRsync(t)
+	f.SetHost("h1", 0, "", 3*time.Second)
+	conf := writeConf(t, "EXTRACT_HOSTS=\"h1\"\n")
+	start := time.Now()
+	code, _, errs := runCLI("-c", conf, "-t", "1")
+	if d := time.Since(start); d > 2800*time.Millisecond {
+		t.Errorf("took %v", d)
+	}
+	if code != 1 || !strings.Contains(errs, "h1: rsync timed out after 1s") {
+		t.Fatalf("code=%d stderr=%q", code, errs)
+	}
+}
+
+func TestE2ETimeoutZeroMeansNone(t *testing.T) {
+	f := testutil.NewFakeRsync(t)
+	f.SetHost("h1", 0, "", 1500*time.Millisecond)
+	conf := writeConf(t, "EXTRACT_HOSTS=\"h1\"\n")
+	code, out, errs := runCLI("-c", conf, "-t", "0")
+	if code != 0 || out != "" || errs != "" {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errs)
 	}
 }

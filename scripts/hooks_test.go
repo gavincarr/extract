@@ -43,6 +43,7 @@ func gitEnv(t *testing.T) string {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
 	t.Setenv("GIT_AUTHOR_NAME", "T")
 	t.Setenv("GIT_AUTHOR_EMAIL", "t@example.com")
 	t.Setenv("GIT_COMMITTER_NAME", "T")
@@ -110,14 +111,42 @@ func TestPostExtractGitCommitsChanges(t *testing.T) {
 	}
 }
 
+func TestPostExtractGitAddFailureExits99(t *testing.T) {
+	for _, mode := range []string{"ALL", "HOST"} {
+		t.Run(mode, func(t *testing.T) {
+			root, cfg, repo := setupGit(t, mode)
+			out, code := run(t, "", "bash", "./post_extract_git", root, cfg, "h1", "")
+			if code != 0 {
+				t.Fatalf("run 1: exit %d: %s", code, out)
+			}
+			writeFile(t, filepath.Join(repo, ".git/index.lock"), "", 0o644)
+			writeFile(t, filepath.Join(root, "h1/etc/hosts"), "two\n", 0o644)
+			out, code = run(t, "", "bash", "./post_extract_git", root, cfg, "h1", "")
+			if code != 99 {
+				t.Errorf("exit = %d, want 99: %s", code, out)
+			}
+			if !strings.Contains(out, "git add failed") {
+				t.Errorf("output lacks 'git add failed': %q", out)
+			}
+		})
+	}
+}
+
 func sshEnv(t *testing.T, addL string) (calls string) {
+	t.Helper()
+	return sshEnvAdd(t, addL, "echo \"$*\" >> CALLS")
+}
+
+// sshEnvAdd is sshEnv with a custom body for non-"-l" ssh-add invocations;
+// the literal CALLS in addCmd is replaced by the calls-file path.
+func sshEnvAdd(t *testing.T, addL, addCmd string) (calls string) {
 	t.Helper()
 	home := t.TempDir()
 	writeFile(t, filepath.Join(home, ".ssh/id_rsa"), "key\n", 0o600)
 	bin := t.TempDir()
 	calls = filepath.Join(t.TempDir(), "calls")
 	writeFile(t, filepath.Join(bin, "ssh-add"),
-		"#!/bin/bash\nif [ \"$1\" = -l ]; then\n"+addL+"\nelse\necho \"$*\" >> "+calls+"\nfi\n", 0o755)
+		"#!/bin/bash\nif [ \"$1\" = -l ]; then\n"+addL+"\nelse\n"+strings.ReplaceAll(addCmd, "CALLS", calls)+"\nfi\n", 0o755)
 	writeFile(t, filepath.Join(bin, "pgrep"), "#!/bin/bash\necho $SSH_AGENT_PID\n", 0o755)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("HOME", home)
@@ -125,6 +154,17 @@ func sshEnv(t *testing.T, addL string) (calls string) {
 	t.Setenv("USER", "x")
 	t.Setenv("HOSTNAME", "y")
 	return calls
+}
+
+func TestLoadSshKeysAddFailureExits99(t *testing.T) {
+	sshEnvAdd(t, "echo 'The agent has no identities.'; exit 1", "exit 1")
+	out, code := run(t, "", "bash", "./pre_extract_load_ssh_keys", "/root", "/cfg")
+	if code != 99 {
+		t.Errorf("exit = %d, want 99: %s", code, out)
+	}
+	if !strings.Contains(out, "ssh-add failed") {
+		t.Errorf("output lacks 'ssh-add failed': %q", out)
+	}
 }
 
 func TestLoadSshKeysAlreadyLoadedExitsZero(t *testing.T) {

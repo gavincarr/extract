@@ -3,6 +3,8 @@ package extract
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -59,6 +61,23 @@ func TestResolveHostsPrecedence(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(names(hs), []string{"h1", "u@h2"}) {
 		t.Fatalf("cfg hosts: %v %v", hs, err)
 	}
+}
+
+func TestResolveHostsCmdNotRunWhenHostsSet(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "ran")
+	cmd := "touch " + marker
+	check := func(name string, args, hosts []string, want []string) {
+		t.Helper()
+		hs, err := ResolveHosts(context.Background(), args, &config.Config{Hosts: hosts, HostCmd: cmd})
+		if err != nil || !reflect.DeepEqual(names(hs), want) {
+			t.Fatalf("%s: %v %v", name, hs, err)
+		}
+		if _, err := os.Stat(marker); err == nil {
+			t.Fatalf("%s: HostCmd was run", name)
+		}
+	}
+	check("cfg hosts", nil, []string{"h1"}, []string{"h1"})
+	check("args", []string{"h9"}, nil, []string{"h9"})
 }
 
 func TestResolveHostsFromCmd(t *testing.T) {
