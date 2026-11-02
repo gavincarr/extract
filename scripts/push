@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Push bin/extract to a host and install it as /usr/bin/extract.
+#
+# Usage: scripts/push <[user@]host>     # e.g. scripts/push root@backup1
+#
+# There is no default host. The remote user must be able to write
+# /usr/bin (normally root). Build first with scripts/build.sh (rake push
+# does that for you). Hooks and config are not touched; see the README's
+# "Build and install" for those.
+
+set -euo pipefail
+
+if [[ $# -ne 1 || -z "$1" ]]; then
+    echo "usage: scripts/push <[user@]host>" >&2
+    exit 64
+fi
+HOST="$1"
+DEST=/usr/bin/extract
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." >/dev/null && pwd)"
+cd "$ROOT"
+
+fail() { echo "error: $*" >&2; exit 1; }
+
+[[ -x bin/extract ]] || fail "bin/extract not found; run scripts/build.sh first"
+VERSION="$(bin/extract --version)"
+
+# Copy to a temporary name, then install over the old binary. install
+# replaces the file rather than rewriting it in place, so a running extract
+# (e.g. from cron) keeps its old inode.
+TMP="/tmp/extract.push.$$"
+echo "+ copying $VERSION to $HOST"
+scp -q bin/extract "$HOST:$TMP"
+echo "+ installing as $HOST:$DEST"
+ssh "$HOST" "install -m 755 $TMP $DEST && rm -f $TMP && $DEST --version" ||
+    { ssh "$HOST" "rm -f $TMP" || true; fail "install on $HOST failed"; }

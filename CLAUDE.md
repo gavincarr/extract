@@ -14,13 +14,19 @@ remote config changes to git. User docs are
 ## Commands
 
 ```shell
-go build ./cmd/extract
+scripts/build.sh                                 # builds bin/extract (also: rake build)
+scripts/push [user@]host                         # installs bin/extract as host:/usr/bin/extract (also: rake push[host]); no default host
 go test ./...
 go test ./internal/extract/ -run TestRunNoop     # single test
 go vet ./... && gofmt -l .                       # gofmt -l should print nothing
 CGO_ENABLED=1 go test -race ./...                # -race needs cgo, which is off by default here
-./extract -c conf/extract.conf -n -vvv [host ...]   # dry run, shows the plan
+bin/extract -c conf/extract.conf -n -vvv [host ...]   # dry run, shows the plan
+scripts/release.sh X.Y.Z                         # needs a top CHANGELOG.md entry for X.Y.Z; commits + tags, never pushes
 ```
+
+The version lives only in `internal/version/VERSION` (embedded); every
+release needs a `## [X.Y.Z] - YYYY-MM-DD` entry at the top of
+`CHANGELOG.md`, which `scripts/release.sh` enforces.
 
 ## Architecture
 

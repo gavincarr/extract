@@ -25,15 +25,24 @@ host and every remote host, for `--delete-missing-args`.
 ```shell
 git clone https://github.com/gavincarr/extract/
 cd extract
-go build ./cmd/extract
+scripts/build.sh        # or: rake build
 ```
+
+This builds `bin/extract`. The version it reports comes from
+`internal/version/VERSION`; see `CHANGELOG.md` for what changed in each
+release.
+
+To update the binary on an extract host, `scripts/push [user@]host` (or
+`rake push[host]`, which builds first) copies `bin/extract` there and
+installs it as `/usr/bin/extract`; the remote user must be able to write
+`/usr/bin`. It leaves config and hooks alone.
 
 Installed layout (the config and globs lines are for a first install
 only and never overwrite an existing copy; `install -b` keeps any
 existing hook it replaces as `<name>~`):
 
 ```shell
-install -m 755 extract /usr/bin/extract
+install -m 755 bin/extract /usr/bin/extract
 install -d /etc/extract/scripts
 [ -e /etc/extract/extract.conf ] || install -m 644 conf/extract.conf.dist /etc/extract/extract.conf
 [ -e /etc/extract/extract.globs ] || install -m 644 conf/extract.globs.dist /etc/extract/extract.globs
@@ -132,8 +141,8 @@ Configuration
 extract is configured with a shell-style file of `KEY=value` lines,
 optionally quoted, with `#` comments. The hook scripts `source` the same
 file, so it must stay valid shell: no spaces around `=`, and quote
-values containing spaces. extract takes values literally, as the 0.x
-(Perl) releases did: quotes are stripped but `$` is not expanded. A key in
+values containing spaces. extract takes values literally, as the Perl
+releases (0.7.2 and earlier) did: quotes are stripped but `$` is not expanded. A key in
 extract's namespaces (`EXTRACT_*`, `PRE_EXTRACT_*`, `POST_EXTRACT_*`) that
 extract doesn't know is a startup error (exit 2), with a did-you-mean hint
 for near misses such as `EXTRACT_HOSTS_CMD`. The one exception is
@@ -485,10 +494,10 @@ Exit codes:
   timed-out or empty `EXTRACT_HOST_CMD`.
 
 
-Upgrading from 0.x (Perl)
--------------------------
+Upgrading from 0.7.x (Perl)
+---------------------------
 
-The Go version (1.0) keeps the Perl 0.x releases' command line, config format,
+The Go version (0.10.0 and later) keeps the Perl releases' command line, config format,
 hook arguments and rsync behaviour, but it treats failures as failures:
 hook exit codes were ignored before and are not now; a missing hook, an
 unreadable `-c` file, or both `EXTRACT_FILES_REMOTE` and
@@ -536,6 +545,21 @@ install -b -m 755 scripts/pre_extract_* scripts/post_extract_* /etc/extract/scri
 If you forget, the old hooks make every run exit 1, so the mistake shows
 up straight away. Locally modified or custom hooks need the same check:
 they must exit 0 on their normal success path.
+
+
+Releasing
+---------
+
+1. Add a `## [X.Y.Z] - YYYY-MM-DD` entry at the top of `CHANGELOG.md`.
+2. Run `scripts/release.sh X.Y.Z` on the branch that tracks the release
+   upstream. It checks that the version is semver, that the branch isn't
+   behind its upstream, that the tree is clean apart from `CHANGELOG.md`
+   and `internal/version/VERSION`, that the tag doesn't exist, that the
+   top changelog entry is `X.Y.Z`, and that `gofmt`, `go vet` and the
+   tests pass. Then it writes `VERSION`, commits `chore: release vX.Y.Z`
+   and creates the annotated tag `vX.Y.Z` with the changelog entry as its
+   message.
+3. Push the branch and the tag yourself: `git push origin master vX.Y.Z`.
 
 
 Author and Licence
