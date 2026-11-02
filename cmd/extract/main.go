@@ -5,7 +5,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"time"
 
+	"github.com/gavincarr/extract/internal/config"
+	"github.com/gavincarr/extract/internal/extract"
+	"github.com/gavincarr/extract/internal/report"
 	"github.com/gavincarr/extract/internal/version"
 )
 
@@ -45,5 +50,36 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 		fmt.Fprintf(stdout, "extract %s\n", version.Version)
 		return 0
 	}
-	return 0
+
+	log := report.NewLogger(stdout, stderr, cli.Verbose)
+	fail := func(err error) int {
+		log.Error("extract: " + err.Error())
+		return 2
+	}
+
+	if cli.Timeout < 0 {
+		return fail(fmt.Errorf("invalid timeout %d: must be >= 0", cli.Timeout))
+	}
+	if _, err := exec.LookPath("rsync"); err != nil {
+		return fail(fmt.Errorf("rsync not found on PATH"))
+	}
+	cfg, err := config.Load(cli.Config)
+	if err != nil {
+		return fail(err)
+	}
+	hosts, err := extract.ResolveHosts(cli.Hosts, cfg)
+	if err != nil {
+		return fail(err)
+	}
+
+	r := extract.Run(cfg, hosts, extract.Options{
+		Noop:      cli.Noop,
+		Verbosity: cli.Verbose,
+		Timeout:   time.Duration(cli.Timeout) * time.Second,
+	})
+	if cli.Noop {
+		report.PrintPlan(stdout, r)
+	}
+	report.Report(log, r)
+	return report.ExitCode(r)
 }
