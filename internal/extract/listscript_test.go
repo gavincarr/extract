@@ -358,6 +358,31 @@ func TestListRootHomeSkipped(t *testing.T) {
 	})
 }
 
+// Without a working readlink -f every ~/ match would quietly vanish, so the
+// step fails instead, saying why.
+func TestListReadlinkUnsupported(t *testing.T) {
+	eachShell(t, func(t *testing.T) {
+		if strings.HasSuffix(os.Getenv("FAKE_SSH_SHELL"), "busybox") {
+			t.Skip("busybox sh runs its own readlink applet, not the one on PATH")
+		}
+		f := testutil.NewFakeSSH(t)
+		f.SetPasswd(t, passwd(t.TempDir()))
+		f.WriteBin(t, "readlink", "echo \"readlink: illegal option -- f\" >&2\nexit 1\n")
+		argv := ListArgs(Host{User: "u", Name: "h1"}, nil, []string{"~/.ssh/*"})
+		s := proc.RunContextStdin(context.Background(), argv, "", listTimeout, nil)
+		_, st, msg := listOutcome(s, listTimeout)
+		if st != StatusFailed || msg != "files list step exited 3" {
+			t.Errorf("got %v %q, want StatusFailed %q", st, msg, "files list step exited 3")
+		}
+		if want := "readlink -f is not supported on this host; EXTRACT_FILES_GLOBS needs it\n"; s.Stderr != want || s.Stdout != "" {
+			t.Errorf("stdout %q stderr %q, want stderr %q", s.Stdout, s.Stderr, want)
+		}
+
+		// Without globs readlink isn't needed, so isn't checked.
+		runList(t, []string{filepath.Join(t.TempDir(), "none")}, nil, "")
+	})
+}
+
 func TestListQuotingAndBang(t *testing.T) {
 	eachShell(t, func(t *testing.T) {
 		testutil.NewFakeSSH(t)

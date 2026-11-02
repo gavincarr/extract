@@ -194,11 +194,18 @@ func (f *FakeSSH) SetPasswdFails(t *testing.T) {
 
 func (f *FakeSSH) writeGetent(t *testing.T, body string) {
 	t.Helper()
+	f.WriteBin(t, "getent", body)
+}
+
+// WriteBin installs an executable "#!/bin/sh" script name, running body,
+// in $CtlDir/bin, where the remote command finds it before the real one.
+func (f *FakeSSH) WriteBin(t *testing.T, name, body string) {
+	t.Helper()
 	bin := filepath.Join(f.CtlDir, "bin")
 	if err := os.MkdirAll(bin, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(bin, "getent"), []byte("#!/bin/sh\n"+body), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"+body), 0o755); err != nil {
 		t.Fatal(err)
 	}
 }

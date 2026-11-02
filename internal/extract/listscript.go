@@ -49,6 +49,11 @@ const (
 	lsPrelude = `nl=$(printf "\nx"); nl=${nl%x}; cr=$(printf "\r"); tab=$(printf "\t"); b=$(printf "\041"); IFS=$nl; set +f; ` +
 		`x() { printf "X %s\n" "$(printf %s "$1" | tr "\n\r" "??")"; }; `
 
+	// Globs need readlink -f. Without it every ~/ match would quietly be
+	// dropped, so fail the step instead (exit 3: neither success nor the
+	// generic 1).
+	lsReadlink = `test "$(readlink -f -- / 2>/dev/null)" = / || { printf "%s\n" "readlink -f is not supported on this host; EXTRACT_FILES_GLOBS needs it" >&2; exit 3; }; `
+
 	// Remote list: the first candidate that is non-empty (test -s, as the
 	// 0.9.0 probe). Lines follow rsync --files-from: a trailing CR is
 	// stripped, blank and #/; comment lines are skipped; the last line may
@@ -122,6 +127,9 @@ func listScript(remoteLists, globs []string) string {
 	}
 	var b strings.Builder
 	b.WriteString(lsPrelude)
+	if len(globs) > 0 {
+		b.WriteString(lsReadlink)
+	}
 	if len(remoteLists) > 0 {
 		b.WriteString(lsRemoteHead + scriptWords(remoteLists) + lsRemoteTail)
 	}

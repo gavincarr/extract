@@ -295,7 +295,11 @@ the host directory. That is what keeps files that hooks create there
   the local tree.
 
 Remote hosts need rsync 3.1.0 or later, a POSIX `sh`, and
-`readlink -f` (GNU coreutils or busybox) for glob matching.
+`readlink -f` (GNU coreutils or busybox) for glob matching. Without a
+working `readlink -f`, `~/` matches would quietly disappear, so the list
+step checks for it first and fails the host with
+`files list step exited 3` and the message
+`readlink -f is not supported on this host; EXTRACT_FILES_GLOBS needs it`.
 
 ### The shipped globs list
 
