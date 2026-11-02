@@ -369,12 +369,14 @@ func TestPlanGlobsHost(t *testing.T) {
 	g := &extract.GlobsResult{Listed: 3, Globbed: 4, Tracked: 5, Missing: 1, Skipped: []string{"a"},
 		Deleted: []string{"/root/h1/etc/old", "/root/h1/etc/older"}}
 	h := globsHost("h1", g)
+	h.PreHooks = []extract.HookResult{{Stage: "pre_extract_host", Path: "/s/pre", Args: []string{"/root", "/cfg", "h1", ""}}}
 	var b bytes.Buffer
 	PrintPlan(&b, &extract.Result{Noop: true, Hosts: []extract.HostResult{h}})
 	want := "built files list: " + globsCmd + " -> 3 listed, 4 globbed, 5 tracked, 1 missing, 1 skipped\n" +
-		"would rsync: " + shellJoin(rsyncArgv) + "\n" +
+		"would run pre_extract_host: /s/pre /root /cfg h1 ''\n" +
 		"would delete local copy: /root/h1/etc/old\n" +
-		"would delete local copy: /root/h1/etc/older\n"
+		"would delete local copy: /root/h1/etc/older\n" +
+		"would rsync: " + shellJoin(rsyncArgv) + "\n"
 	if b.String() != want {
 		t.Errorf("got\n%s\nwant\n%s", b.String(), want)
 	}
@@ -399,6 +401,9 @@ func TestReportGlobsFailureShowsStderr(t *testing.T) {
 	h.Probe.Stderr = "ssh: refused\n"
 	h.Probe.ExitCode = 255
 	h.Rsync = nil
+	if o, _ := run(&extract.Result{Hosts: []extract.HostResult{h}}, 3); strings.Contains(o, "files list:") {
+		t.Errorf("counts shown for failed host: %q", o)
+	}
 	_, e := run(&extract.Result{Hosts: []extract.HostResult{h}}, 0)
 	if want := "h1: files list script exited 255\n  out\n  ssh: refused\n"; e != want {
 		t.Errorf("stderr %q want %q", e, want)

@@ -37,7 +37,7 @@ func Report(log *slog.Logger, r *extract.Result) {
 	}
 	for _, h := range r.Hosts {
 		trace(h.Probe)
-		if h.Globs != nil {
+		if h.Globs != nil && !h.Globs.Failed {
 			say(LevelTrace, "%s: files list: %s", h.Host.Name, globsCounts(h.Globs))
 		}
 		for _, p := range h.PreHooks {
@@ -200,13 +200,13 @@ func PrintPlan(w io.Writer, r *extract.Result) {
 			fmt.Fprintf(w, "checked files lists: %s -> %s\n", shellJoin(h.Probe.Argv), h.FilesFrom)
 		}
 		hooks(h.PreHooks)
-		if h.Rsync != nil {
-			fmt.Fprintf(w, "would rsync: %s\n", shellJoin(h.Rsync.Argv))
-		}
 		if h.Globs != nil {
 			for _, d := range h.Globs.Deleted {
 				fmt.Fprintf(w, "would delete local copy: %s\n", d)
 			}
+		}
+		if h.Rsync != nil {
+			fmt.Fprintf(w, "would rsync: %s\n", shellJoin(h.Rsync.Argv))
 		}
 		hooks(h.PostHooks)
 	}
