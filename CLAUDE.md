@@ -35,7 +35,10 @@ CGO_ENABLED=1 go test -race ./...                # -race needs cgo, which is off
   paths at load time.
 - `internal/extract`: `ResolveHosts`, `RsyncArgs` and `Run`.
 - `internal/proc`: runs one command with a timeout in its own process group
-  (kill `-pgid`: SIGTERM, then SIGKILL after a grace period).
+  (kill `-pgid`: SIGTERM, then SIGKILL after a grace period). `RunContext`
+  kills the same way when its context is cancelled; `run` cancels on
+  SIGINT/SIGTERM/SIGHUP, because children in their own groups would
+  otherwise survive extract being killed.
 - `internal/report`: renders a result as plain lines through `slog`.
 - `internal/testutil`: fake rsync on `PATH` for tests.
 

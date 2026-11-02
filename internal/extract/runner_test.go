@@ -1,6 +1,7 @@
 package extract
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -299,5 +300,79 @@ func TestRunMkdirFailure(t *testing.T) {
 	calls := e.fake.Calls()
 	if len(calls) != 1 || calls[0].Argv[len(calls[0].Argv)-1] != "h2" {
 		t.Errorf("calls %+v", calls)
+	}
+}
+
+func cancelAfter(d time.Duration) context.Context {
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(d, cancel)
+	return ctx
+}
+
+func TestRunInterruptedDuringRsync(t *testing.T) {
+	e := newEnv(t)
+	e.cfg.PostHost = []string{e.hook(t, "post", "")}
+	e.cfg.PostTeardown = []string{e.hook(t, "teardown", "")}
+	e.fake.SetHost("h1", 0, "", 5*time.Second)
+	start := time.Now()
+	r := Run(e.cfg, hosts("h1", "h2", "h3"), Options{Ctx: cancelAfter(200 * time.Millisecond)})
+	if d := time.Since(start); d > 4*time.Second {
+		t.Fatalf("took too long: %v", d)
+	}
+	if !r.Interrupted || r.Aborted || r.OK() {
+		t.Fatalf("Interrupted=%v Aborted=%v OK=%v", r.Interrupted, r.Aborted, r.OK())
+	}
+	if r.HostsPlanned != 3 {
+		t.Errorf("HostsPlanned = %d", r.HostsPlanned)
+	}
+	if len(r.Hosts) != 1 {
+		t.Fatalf("hosts = %d", len(r.Hosts))
+	}
+	h := r.Hosts[0]
+	if h.Status != StatusFailed || h.Error != "rsync interrupted" {
+		t.Errorf("status %v error %q", h.Status, h.Error)
+	}
+	if h.PostHooks[0].Step != nil {
+		t.Error("post hook ran after interruption")
+	}
+	for _, l := range testutil.HookLog(t, e.hooks) {
+		if strings.HasPrefix(l, "teardown") || strings.HasPrefix(l, "post") {
+			t.Errorf("hook ran after interruption: %q", l)
+		}
+	}
+	if n := len(e.fake.Calls()); n != 1 {
+		t.Errorf("rsync calls = %d", n)
+	}
+}
+
+func TestRunInterruptedDuringPostHook(t *testing.T) {
+	e := newEnv(t)
+	e.cfg.PostHost = []string{e.hook(t, "git", "sleep 5"), e.hook(t, "touch", "")}
+	r := Run(e.cfg, hosts("h1", "h2"), Options{Ctx: cancelAfter(300 * time.Millisecond)})
+	if !r.Interrupted || len(r.Hosts) != 1 {
+		t.Fatalf("Interrupted=%v hosts=%d", r.Interrupted, len(r.Hosts))
+	}
+	h := r.Hosts[0]
+	if h.Status != StatusFailed || h.Error != "post_extract_host hook git interrupted" {
+		t.Errorf("status %v error %q", h.Status, h.Error)
+	}
+	if h.PostHooks[1].Step != nil {
+		t.Error("second post hook ran after interruption")
+	}
+}
+
+func TestRunInterruptedDuringSetup(t *testing.T) {
+	e := newEnv(t)
+	e.cfg.PreSetup = []string{e.hook(t, "setup", "sleep 5")}
+	e.cfg.PostTeardown = []string{e.hook(t, "teardown", "")}
+	r := Run(e.cfg, hosts("h1"), Options{Ctx: cancelAfter(200 * time.Millisecond)})
+	if !r.Interrupted || r.Aborted || len(r.Hosts) != 0 || r.OK() {
+		t.Fatalf("Interrupted=%v Aborted=%v hosts=%d", r.Interrupted, r.Aborted, len(r.Hosts))
+	}
+	if !r.SetupHooks[0].Step.Interrupted {
+		t.Error("setup step not marked interrupted")
+	}
+	if got := testutil.HookLog(t, e.hooks); len(got) != 1 {
+		t.Errorf("hook log: %q", got)
 	}
 }

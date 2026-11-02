@@ -3,9 +3,12 @@ package main
 import (
 	"bytes"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/gavincarr/extract/internal/testutil"
 )
@@ -135,5 +138,31 @@ func TestE2EInvalidHostExits2(t *testing.T) {
 	}
 	if n := len(f.Calls()); n != 0 {
 		t.Fatalf("rsync called %d times", n)
+	}
+}
+
+func TestE2ESIGTERMInterruptsRun(t *testing.T) {
+	// Keep the test process alive whether or not run() handles the signal.
+	guard := make(chan os.Signal, 1)
+	signal.Notify(guard, syscall.SIGTERM)
+	defer signal.Stop(guard)
+
+	f := testutil.NewFakeRsync(t)
+	f.SetHost("h1", 0, "", 10*time.Second)
+	conf := writeConf(t, "EXTRACT_HOSTS=\"h1 h2\"\n")
+	go func() {
+		// Wait for the fake rsync to start, so run() is mid-step.
+		for i := 0; i < 500 && len(f.Calls()) == 0; i++ {
+			time.Sleep(10 * time.Millisecond)
+		}
+		_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
+	}()
+	start := time.Now()
+	code, out, errs := runCLI("-c", conf)
+	if d := time.Since(start); d > 6*time.Second {
+		t.Fatalf("took too long: %v", d)
+	}
+	if code != 1 || out != "" || errs != "h1: rsync interrupted\nrun interrupted: 1 of 2 hosts attempted\n" {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errs)
 	}
 }

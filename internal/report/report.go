@@ -95,6 +95,9 @@ func Report(log *slog.Logger, r *extract.Result) {
 			}
 		}
 	}
+	if r.Interrupted {
+		say(slog.LevelError, "run interrupted: %d of %d hosts attempted", len(r.Hosts), r.HostsPlanned)
+	}
 	hookFailure(r.TeardownHooks)
 
 	// Warnings.
@@ -113,8 +116,8 @@ func Report(log *slog.Logger, r *extract.Result) {
 
 	// Summary.
 	switch {
-	case r.Aborted:
-		// The "run aborted" error line covers it.
+	case r.Aborted, r.Interrupted:
+		// The "run aborted" / "run interrupted" error line covers it.
 	case r.OK():
 		noun := "hosts"
 		if ok == 1 {
@@ -133,6 +136,8 @@ func stepProblem(s *proc.StepResult, timeout time.Duration) string {
 		return fmt.Sprintf("failed to start: %v", s.Err)
 	case s.TimedOut:
 		return fmt.Sprintf("timed out after %s", timeout)
+	case s.Interrupted:
+		return "interrupted"
 	}
 	return fmt.Sprintf("exited %d", s.ExitCode)
 }

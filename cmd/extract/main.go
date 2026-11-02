@@ -2,10 +2,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/gavincarr/extract/internal/config"
@@ -72,7 +75,14 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 		return fail(err)
 	}
 
+	// Children run in their own process groups, so a terminal Ctrl-C or a
+	// kill of extract would not reach them; cancel the run instead, which
+	// kills the running step's group and starts nothing further.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	defer stop()
+
 	r := extract.Run(cfg, hosts, extract.Options{
+		Ctx:       ctx,
 		Noop:      cli.Noop,
 		Verbosity: cli.Verbose,
 		Timeout:   time.Duration(cli.Timeout) * time.Second,

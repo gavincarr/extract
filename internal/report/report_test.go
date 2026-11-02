@@ -201,3 +201,34 @@ func TestReportPostHookFailureAfterRsyncFailure(t *testing.T) {
 		"then post_extract_host hook git exited 1", "fatal: bad object")
 	contains(t, "stderr", e, "h1: rsync exited 23\n  link_stat x\n  then post_extract_host hook git exited 1\n    fatal: bad object\n")
 }
+
+func TestReportInterrupted(t *testing.T) {
+	r := &extract.Result{Interrupted: true, HostsPlanned: 3, Hosts: []extract.HostResult{
+		okHost("h1"),
+		{Host: host("h2"), Status: extract.StatusFailed, Error: "rsync interrupted",
+			Rsync: &proc.StepResult{ExitCode: -1, Interrupted: true}},
+	}}
+	o, e := run(r, 0)
+	if o != "" {
+		t.Errorf("v0 stdout: %q", o)
+	}
+	if e != "h2: rsync interrupted\nrun interrupted: 2 of 3 hosts attempted\n" {
+		t.Errorf("v0 stderr: %q", e)
+	}
+	o, e2 := run(r, 1)
+	if o != "" || e2 != e {
+		t.Errorf("v1: %q %q", o, e2)
+	}
+	if ExitCode(r) != 1 {
+		t.Error("exit code != 1")
+	}
+}
+
+func TestReportInterruptedSetupHook(t *testing.T) {
+	r := &extract.Result{Interrupted: true, HostsPlanned: 2, SetupHooks: []extract.HookResult{{
+		Stage: "pre_extract_setup", Path: "/s/keys", Step: &proc.StepResult{ExitCode: -1, Interrupted: true}}}}
+	_, e := run(r, 0)
+	if e != "pre_extract_setup hook /s/keys interrupted\nrun interrupted: 0 of 2 hosts attempted\n" {
+		t.Errorf("stderr: %q", e)
+	}
+}

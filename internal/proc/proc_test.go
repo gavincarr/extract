@@ -1,6 +1,7 @@
 package proc
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -53,6 +54,13 @@ func TestRunTimeoutKillsProcessGroup(t *testing.T) {
 	if d := time.Since(start); d > 5*time.Second {
 		t.Fatalf("took too long: %v", d)
 	}
+	waitGone(t, pidfile)
+}
+
+// waitGone fails the test unless the pid recorded in pidfile exits within
+// a second.
+func waitGone(t *testing.T, pidfile string) {
+	t.Helper()
 	b, err := os.ReadFile(pidfile)
 	if err != nil {
 		t.Fatal(err)
@@ -99,5 +107,34 @@ func TestRunBackgroundChildHoldingPipe(t *testing.T) {
 	}
 	if d := time.Since(start); d > 3*time.Second {
 		t.Fatalf("took too long: %v", d)
+	}
+}
+
+func TestRunContextCancelKillsProcessGroup(t *testing.T) {
+	pidfile := filepath.Join(t.TempDir(), "pid")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	time.AfterFunc(200*time.Millisecond, cancel)
+	start := time.Now()
+	r := RunContext(ctx, []string{"sh", "-c", "sleep 30 & echo $! > " + pidfile + "; wait"}, "", 0)
+	if !r.Interrupted || r.TimedOut || !r.Failed() {
+		t.Fatalf("expected interrupted: %+v", r)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("took too long: %v", d)
+	}
+	waitGone(t, pidfile)
+}
+
+func TestRunContextAlreadyCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	marker := filepath.Join(t.TempDir(), "ran")
+	r := RunContext(ctx, []string{"touch", marker}, "", 0)
+	if !r.Interrupted || !r.Failed() {
+		t.Fatalf("expected interrupted: %+v", r)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("command ran despite cancelled context")
 	}
 }
