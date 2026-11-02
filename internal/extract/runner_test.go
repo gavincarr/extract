@@ -825,6 +825,10 @@ func TestRunGlobsSymlinkDeleteStaysInHostDir(t *testing.T) {
 	// A symlinked directory inside the host tree (say, made by a hook)
 	// must not lead the delete outside it either.
 	symlink(t, e.root, filepath.Join(e.cfg.Root, "h1", "link"))
+	// Both are tracked, so only the containment checks stop the delete.
+	if err := WriteManifest(ManifestPath(e.cfg.Root, "h1"), []string{"/../../victim", "/link/victim"}); err != nil {
+		t.Fatal(err)
+	}
 	e.ssh.SetHost("h1", 0, "L /../../victim\nL /link/victim\nE\n", "", 0)
 	h := Run(e.cfg, hosts("h1"), Options{}).Hosts[0]
 	if h.Status != StatusOK {
@@ -839,9 +843,82 @@ func TestRunGlobsSymlinkDeleteStaysInHostDir(t *testing.T) {
 	checkList(t, "warnings", h.Warnings, []string{"skipped symlink /../../victim", "skipped symlink /link/victim"})
 }
 
+func TestRunGlobsUntrackedSymlinkCopyKept(t *testing.T) {
+	e, a := newGlobsEnv(t)
+	link, local, kh := symlinkSetup(t, e, a)
+	e.writeManifest(t, "h1", kh) // the link's path was never extracted by us
+	h := Run(e.cfg, hosts("h1"), Options{}).Hosts[0]
+	if h.Status != StatusOK {
+		t.Fatalf("status %v err %q", h.Status, h.Error)
+	}
+	if _, err := os.Lstat(local); err != nil {
+		t.Errorf("untracked local file deleted: %v", err)
+	}
+	if len(h.Globs.Deleted) != 0 {
+		t.Errorf("Deleted %q", h.Globs.Deleted)
+	}
+	checkList(t, "warnings", h.Warnings, []string{"skipped symlink " + link})
+	checkList(t, "rsync list", e.fake.List("h1"), []string{kh})
+}
+
+func TestRunGlobsRemoteListBeatsSymlinkRule(t *testing.T) {
+	e, a := newGlobsEnv(t)
+	link, local, kh := symlinkSetup(t, e, a)
+	e.cfg.Source = testutil.WriteFile(t, t.TempDir(), "list.txt", link+"\n")
+	e.writeManifest(t, "h1", link, kh)
+	h := Run(e.cfg, hosts("h1"), Options{}).Hosts[0]
+	if h.Status != StatusOK {
+		t.Fatalf("status %v err %q", h.Status, h.Error)
+	}
+	if _, err := os.Lstat(local); err != nil {
+		t.Errorf("local copy of a remote-list path deleted: %v", err)
+	}
+	if len(h.Globs.Deleted) != 0 || len(h.Warnings) != 0 {
+		t.Errorf("Deleted %q warnings %q", h.Globs.Deleted, h.Warnings)
+	}
+	checkList(t, "rsync list", e.fake.List("h1"), []string{link, kh})
+	checkList(t, "manifest", e.manifest(t, "h1"), []string{link, kh})
+}
+
+func TestRunGlobsRsyncExit24WritesManifest(t *testing.T) {
+	e, a := newGlobsEnv(t)
+	conf := mkfile(t, filepath.Join(a, ".ssh", "config"))
+	e.fake.SetHost("h1", 24, "", 0)
+	h := Run(e.cfg, hosts("h1"), Options{}).Hosts[0]
+	if h.Status != StatusOK {
+		t.Fatalf("status %v err %q", h.Status, h.Error)
+	}
+	checkList(t, "manifest", e.manifest(t, "h1"), []string{conf})
+}
+
+func TestRunGlobsManifestWriteFails(t *testing.T) {
+	e, a := newGlobsEnv(t)
+	mkfile(t, filepath.Join(a, ".ssh", "config"))
+	// The manifest has been read by the time the pre-host hook runs; it
+	// leaves a file where the state directory should be.
+	state := filepath.Join(e.root, ".extract-state")
+	e.cfg.PreHost = []string{e.hook(t, "pre", `touch "$1/.extract-state"`)}
+	e.cfg.PostHost = []string{e.hook(t, "post", "exit 1")}
+	h := Run(e.cfg, hosts("h1"), Options{}).Hosts[0]
+	if h.Status != StatusFailed || !strings.HasPrefix(h.Error, "cannot write manifest: ") {
+		t.Errorf("status %v err %q", h.Status, h.Error)
+	}
+	if h.Rsync == nil || len(h.PostHooks) != 1 || h.PostHooks[0].Step == nil {
+		t.Errorf("Rsync %v PostHooks %+v: post hook should have run", h.Rsync, h.PostHooks)
+	}
+	if st, err := os.Stat(state); err != nil || st.IsDir() {
+		t.Errorf("state path: %v %v", st, err)
+	}
+}
+
 func TestRunGlobsNoopWritesNothing(t *testing.T) {
 	e, a := newGlobsEnv(t)
 	link, local, kh := symlinkSetup(t, e, a)
+	e.writeManifest(t, "h1", link)
+	before, err := os.ReadFile(ManifestPath(e.root, "h1"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	e.cfg.PreHost = []string{e.hook(t, "pre", "")}
 	h := Run(e.cfg, hosts("h1"), Options{Noop: true}).Hosts[0]
 	if h.Status != StatusOK {
@@ -855,8 +932,8 @@ func TestRunGlobsNoopWritesNothing(t *testing.T) {
 	}
 	checkList(t, "Deleted", h.Globs.Deleted, []string{local})
 	checkList(t, "warnings", h.Warnings, []string{"skipped symlink " + link})
-	if _, err := os.Stat(filepath.Join(e.root, ".extract-state")); !os.IsNotExist(err) {
-		t.Errorf("state dir created under noop: %v", err)
+	if after, err := os.ReadFile(ManifestPath(e.root, "h1")); err != nil || string(after) != string(before) {
+		t.Errorf("manifest changed under noop: %q -> %q (%v)", before, after, err)
 	}
 	calls := e.fake.Calls()
 	if len(calls) != 1 || !slices.Contains(calls[0].Argv, "--dry-run") {

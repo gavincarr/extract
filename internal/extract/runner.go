@@ -184,12 +184,13 @@ func runHost(ctx context.Context, cfg *config.Config, h Host, opts Options) (hr 
 	}
 
 	hr.FilesFrom = cfg.FilesArg()
-	var lr *ListResult // set when using globs
+	var lr *ListResult        // set when using globs
+	var prevManifest []string // the manifest read before the list step
 	if cfg.UsesGlobs() {
 		hr.FilesFrom = ""
 		var status Status
 		var msg string
-		lr, status, msg = buildList(ctx, cfg, h, opts, &hr)
+		lr, prevManifest, status, msg = buildList(ctx, cfg, h, opts, &hr)
 		if msg != "" {
 			hookArgs = []string{cfg.Root, cfg.Path, h.Name, ""}
 			skip()
@@ -231,9 +232,9 @@ func runHost(ctx context.Context, cfg *config.Config, h Host, opts Options) (hr 
 		return hr
 	}
 
-	argv := RsyncArgs(cfg, h, hr.FilesFrom, opts.Noop, opts.Verbosity)
+	var argv []string
 	if lr != nil {
-		deleteSymlinkCopies(cfg.Root, h.Name, lr.Symlinks, opts.Noop, &hr)
+		deleteSymlinkCopies(cfg.Root, h.Name, trackedSymlinks(lr, prevManifest), opts.Noop, &hr)
 		listFile, err := writeListFile(rsyncList(lr))
 		if err != nil {
 			fail(StatusFailed, fmt.Sprintf("cannot write files list: %v", err))
@@ -241,6 +242,8 @@ func runHost(ctx context.Context, cfg *config.Config, h Host, opts Options) (hr 
 		}
 		defer os.Remove(listFile)
 		argv = GlobsRsyncArgs(h, listFile, opts.Noop, opts.Verbosity)
+	} else {
+		argv = RsyncArgs(cfg, h, hr.FilesFrom, opts.Noop, opts.Verbosity)
 	}
 	step := proc.RunContext(ctx, argv, cfg.Root, opts.Timeout)
 	hr.Rsync = &step
@@ -324,12 +327,13 @@ func runHooks(ctx context.Context, cfg *config.Config, stage string, paths, args
 
 // buildList reads the host's manifest and runs the list step with it on
 // stdin, recording the step and its outcome in hr and adding a warning per
-// skipped glob match. On failure it returns the status and message for the
-// host; nothing else is then run for it.
-func buildList(ctx context.Context, cfg *config.Config, h Host, opts Options, hr *HostResult) (*ListResult, Status, string) {
+// skipped glob match. It returns the list and the manifest it read. On
+// failure it returns the status and message for the host; nothing else is
+// then run for it.
+func buildList(ctx context.Context, cfg *config.Config, h Host, opts Options, hr *HostResult) (*ListResult, []string, Status, string) {
 	manifest, err := ReadManifest(ManifestPath(cfg.Root, h.Name))
 	if err != nil {
-		return nil, StatusFailed, fmt.Sprintf("cannot read manifest: %v", err)
+		return nil, nil, StatusFailed, fmt.Sprintf("cannot read manifest: %v", err)
 	}
 	var stdin strings.Builder
 	for _, p := range manifest {
@@ -342,14 +346,18 @@ func buildList(ctx context.Context, cfg *config.Config, h Host, opts Options, hr
 	lr, status, msg := listOutcome(step, opts.Timeout)
 	hr.Globs = &GlobsResult{Failed: msg != ""}
 	if msg != "" {
-		return nil, status, msg
+		return nil, nil, status, msg
 	}
 	lr.Symlinks = dedup(lr.Symlinks)
 	lr.Skipped = dedup(lr.Skipped)
 	g := hr.Globs
 	g.NoList = lr.NoList
 	g.Listed, g.Globbed, g.Tracked, g.Missing = len(lr.Listed), len(lr.Globbed), len(lr.Tracked), len(lr.Missing)
+	listed := pathSet(lr.Listed)
 	for _, p := range lr.Symlinks {
+		if listed[p] {
+			continue // extracted anyway: remote-list paths follow links
+		}
 		hr.Warnings = append(hr.Warnings, "skipped symlink "+p)
 		g.Skipped = append(g.Skipped, p)
 	}
@@ -357,7 +365,7 @@ func buildList(ctx context.Context, cfg *config.Config, h Host, opts Options, hr
 		hr.Warnings = append(hr.Warnings, "skipped name containing a newline "+p)
 		g.Skipped = append(g.Skipped, p)
 	}
-	return &lr, StatusOK, ""
+	return &lr, manifest, StatusOK, ""
 }
 
 // deleteSymlinkCopies removes the local copy, if any, of each glob match
@@ -405,17 +413,42 @@ func deleteSymlinkCopies(root, host string, symlinks []string, noop bool, hr *Ho
 }
 
 // rsyncList is the files list given to rsync for a globs host: the
-// remote-list, glob, tracked and missing paths, deduplicated, minus every
-// symlinked glob match. Missing paths are listed so that
+// remote-list paths, then the glob, tracked and missing paths minus every
+// symlinked glob match, deduplicated. The symlink rule applies only to
+// glob matches (and the manifest that records them); a remote-list path
+// keeps --copy-links. Missing paths are listed so that
 // --delete-missing-args deletes their local copies.
 func rsyncList(lr *ListResult) []string {
-	return without(dedup(lr.Listed, lr.Globbed, lr.Tracked, lr.Missing), lr.Symlinks)
+	return dedup(lr.Listed, without(dedup(lr.Globbed, lr.Tracked, lr.Missing), lr.Symlinks))
 }
 
 // manifestList is the new manifest after a successful rsync: the paths in
 // the rsync list that exist on the host.
 func manifestList(lr *ListResult) []string {
-	return without(dedup(lr.Listed, lr.Globbed, lr.Tracked), lr.Symlinks)
+	return dedup(lr.Listed, without(dedup(lr.Globbed, lr.Tracked), lr.Symlinks))
+}
+
+// trackedSymlinks returns the symlinked glob matches whose local copies
+// may be deleted: those extract put there itself (in the previous
+// manifest) and that the remote list doesn't still extract.
+func trackedSymlinks(lr *ListResult, prevManifest []string) []string {
+	tracked, listed := pathSet(prevManifest), pathSet(lr.Listed)
+	var out []string
+	for _, p := range lr.Symlinks {
+		if tracked[absPath(p)] && !listed[absPath(p)] {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// pathSet returns the set of paths, made absolute.
+func pathSet(paths []string) map[string]bool {
+	set := make(map[string]bool, len(paths))
+	for _, p := range paths {
+		set[absPath(p)] = true
+	}
+	return set
 }
 
 // absPath makes a files-list path absolute. Remote-list entries are
@@ -447,10 +480,7 @@ func dedup(lists ...[]string) []string {
 
 // without returns paths minus any in drop (compared as absolute paths).
 func without(paths, drop []string) []string {
-	skip := map[string]bool{}
-	for _, p := range drop {
-		skip[absPath(p)] = true
-	}
+	skip := pathSet(drop)
 	var out []string
 	for _, p := range paths {
 		if !skip[p] {
