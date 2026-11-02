@@ -21,7 +21,8 @@ func TestParseHost(t *testing.T) {
 			t.Errorf("ParseHost(%q) = %v, %v; want %v", in, got, err, want)
 		}
 	}
-	for _, in := range []string{"", "u@", "@h", "-h", "u@-h", "a/b", ".", "..", "u@h@x"} {
+	for _, in := range []string{"", "u@", "@h", "-h", "u@-h", "a/b", ".", "..", "u@h@x",
+		"-o@h", "-oProxyCommand=x@h", "u:x@h", "u/x@h", "u x@h", "h:1", "h 1", "h\t1", "h\x01"} {
 		if _, err := ParseHost(in); err == nil {
 			t.Errorf("ParseHost(%q): expected error", in)
 		}

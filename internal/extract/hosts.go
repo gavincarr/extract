@@ -5,6 +5,7 @@ package extract
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/gavincarr/extract/internal/config"
 	"github.com/gavincarr/extract/internal/proc"
@@ -31,6 +32,9 @@ func ParseHost(s string) (Host, error) {
 		if user == "" {
 			return Host{}, fmt.Errorf("invalid host %q: empty user", s)
 		}
+		if strings.HasPrefix(user, "-") || strings.ContainsAny(user, ":/") || hasSpaceOrControl(user) {
+			return Host{}, fmt.Errorf("invalid host %q: bad user", s)
+		}
 		h = Host{User: user, Name: name}
 	} else {
 		h = Host{Name: s}
@@ -40,8 +44,8 @@ func ParseHost(s string) (Host, error) {
 		return Host{}, fmt.Errorf("invalid host %q: empty host name", s)
 	case strings.HasPrefix(h.Name, "-"):
 		return Host{}, fmt.Errorf("invalid host %q: name must not start with '-'", s)
-	case strings.ContainsAny(h.Name, "/@"):
-		return Host{}, fmt.Errorf("invalid host %q: name must not contain '/' or '@'", s)
+	case strings.ContainsAny(h.Name, "/@:") || hasSpaceOrControl(h.Name):
+		return Host{}, fmt.Errorf("invalid host %q: name must not contain '/', '@', ':', whitespace or control characters", s)
 	case h.Name == "." || h.Name == "..":
 		return Host{}, fmt.Errorf("invalid host %q: bad host name", s)
 	}
@@ -88,6 +92,10 @@ func ResolveHosts(args []string, cfg *config.Config) ([]Host, error) {
 		hosts = append(hosts, h)
 	}
 	return hosts, nil
+}
+
+func hasSpaceOrControl(s string) bool {
+	return strings.IndexFunc(s, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0
 }
 
 func failDetail(res proc.StepResult) string {
