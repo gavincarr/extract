@@ -21,6 +21,32 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
+// interruptSignals lists the signals that should cancel a run, leaving out
+// any that were already ignored when extract started (SIGHUP under nohup,
+// SIGINT for a background job in a script): signal.Notify would otherwise
+// un-ignore them.
+func interruptSignals(ignored func(os.Signal) bool) []os.Signal {
+	var sigs []os.Signal
+	for _, s := range []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP} {
+		if !ignored(s) {
+			sigs = append(sigs, s)
+		}
+	}
+	return sigs
+}
+
+// signalContext returns a context cancelled by the first interrupt signal
+// that wasn't ignored at startup. With every signal ignored it returns a
+// context that is never cancelled, because signal.NotifyContext with no
+// signals would relay all of them.
+func signalContext(ignored func(os.Signal) bool) (context.Context, context.CancelFunc) {
+	sigs := interruptSignals(ignored)
+	if len(sigs) == 0 {
+		return context.Background(), func() {}
+	}
+	return signal.NotifyContext(context.Background(), sigs...)
+}
+
 // run parses args and returns the process exit code. Kong exits are
 // trapped: code 0 (e.g. --help) stays 0, anything else becomes 2.
 func run(args []string, stdout, stderr io.Writer) (code int) {
@@ -78,7 +104,7 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 	// Children run in their own process groups, so a terminal Ctrl-C or a
 	// kill of extract would not reach them; cancel the run instead, which
 	// kills the running step's group and starts nothing further.
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	ctx, stop := signalContext(signal.Ignored)
 	defer stop()
 
 	r := extract.Run(cfg, hosts, extract.Options{

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"syscall"
 	"testing"
@@ -164,5 +165,57 @@ func TestE2ESIGTERMInterruptsRun(t *testing.T) {
 	}
 	if code != 1 || out != "" || errs != "h1: rsync interrupted\nrun interrupted: 1 of 2 hosts attempted\n" {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errs)
+	}
+}
+
+func TestInterruptSignalsSkipsIgnored(t *testing.T) {
+	all := []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP}
+	got := interruptSignals(func(s os.Signal) bool { return false })
+	if !reflect.DeepEqual(got, all) {
+		t.Errorf("none ignored: got %v", got)
+	}
+	got = interruptSignals(func(s os.Signal) bool { return s == syscall.SIGHUP })
+	if want := []os.Signal{os.Interrupt, syscall.SIGTERM}; !reflect.DeepEqual(got, want) {
+		t.Errorf("SIGHUP ignored: got %v, want %v", got, want)
+	}
+	got = interruptSignals(func(s os.Signal) bool { return true })
+	if len(got) != 0 {
+		t.Errorf("all ignored: got %v", got)
+	}
+}
+
+func TestSignalContextAllIgnoredIsNeverCancelled(t *testing.T) {
+	// signal.NotifyContext with no signals would relay every signal; make
+	// sure that case yields a plain, uncancellable context instead.
+	ctx, stop := signalContext(func(os.Signal) bool { return true })
+	defer stop()
+	if ctx.Done() != nil {
+		t.Error("context with no signals should never be cancelled")
+	}
+}
+
+func TestE2EIgnoredSIGHUPDoesNotInterrupt(t *testing.T) {
+	// Simulate `nohup extract`: SIGHUP is ignored before run() starts.
+	wasIgnored := signal.Ignored(syscall.SIGHUP)
+	signal.Ignore(syscall.SIGHUP)
+	if !wasIgnored {
+		defer signal.Reset(syscall.SIGHUP)
+	}
+
+	f := testutil.NewFakeRsync(t)
+	f.SetHost("h1", 0, "", 1*time.Second)
+	conf := writeConf(t, "EXTRACT_HOSTS=\"h1 h2\"\n")
+	go func() {
+		for i := 0; i < 500 && len(f.Calls()) == 0; i++ {
+			time.Sleep(10 * time.Millisecond)
+		}
+		_ = syscall.Kill(os.Getpid(), syscall.SIGHUP)
+	}()
+	code, out, errs := runCLI("-c", conf)
+	if code != 0 || out != "" || errs != "" {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errs)
+	}
+	if n := len(f.Calls()); n != 2 {
+		t.Errorf("rsync calls = %d, want 2", n)
 	}
 }
