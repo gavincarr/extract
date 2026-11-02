@@ -37,8 +37,9 @@ CGO_ENABLED=1 go test -race ./...                # -race needs cgo, which is off
   holds copies of remote secrets and `.git/objects` gets umask modes, so
   the root's own mode is the only fence. It never changes the exit code.
   E2e tests must therefore use a `0700` root (`rootDir` in
-  `e2e_test.go`); `t.TempDir()` subdirectories follow the umask. A new subcommand is a struct
-  field with `cmd:""` on `CLI`, an `app` method, and a case in the switch.
+  `e2e_test.go`); `t.TempDir()` subdirectories follow the umask. A new
+  subcommand is a struct field with `cmd:""` on `CLI`, an `app` method,
+  and a case in the switch.
   Every kong field has an explicit `name:` tag; `-v` is an `int` counter.
 - `internal/config`: loads the shell-style config with its own literal
   parser (`parse.go`: quotes stripped, no `$` expansion, like
@@ -54,11 +55,15 @@ CGO_ENABLED=1 go test -race ./...                # -race needs cgo, which is off
   `$EXTRACT_ROOT/.extract-state/<host>.files` (dir `0700`, file `0600`,
   written atomically): the paths extract has extracted, so later runs
   list them and `--delete-missing-args` deletes copies of files gone
-  from the host. Deletion is limited to manifest paths, which keeps
-  hook-created files (tarballs) safe; the manifest is rewritten only
-  after rsync exits 0 or 24, never under `-n`. Host names can't start
-  with `.`, so no host collides with `.extract-state`. With several
-  `EXTRACT_FILES_REMOTE` paths, `runHost` first runs an ssh probe
+  from the host. Missing `EXTRACT_FILES_REMOTE` entries are listed and
+  deleted too (where 0.9.0 fails the host with rsync exit 23). Deletion
+  only reaches paths named in this run's remote list or the manifest,
+  never anything else in the host directory, which keeps hook-created
+  files (tarballs) safe. Manifest paths are only checked for existence,
+  not the symlink rule, once no glob matches them. The manifest is
+  rewritten only after rsync exits 0 or 24, never under `-n`. Host names
+  can't start with `.`, so no host collides with `.extract-state`. With
+  several `EXTRACT_FILES_REMOTE` paths, `runHost` first runs an ssh probe
   (`probe.go`: `ProbeArgs`, a one-line `test -s` loop) to choose the
   host's list; a failed probe skips pre/post-host hooks and rsync.
 - `internal/proc`: runs one command with a timeout in its own process group
@@ -103,12 +108,13 @@ values. `TestLoadShippedDist` parses the dist file.
 
 ### Output and exit codes
 
-Output levels: default prints only failures (stderr); `-v` adds a summary line,
-`-vv` a line per OK host, `-vvv` rsync commands and step output (and rsync
-`--verbose`). `-n` always prints the plan and runs no hooks, but does run
-`EXTRACT_HOST_CMD` and the files-list probe. Exit codes: 0 all OK; 1 a host
-or hook failed; 2 usage or config error (kong's 80 is mapped to 2). Errors
-go to stderr, info to stdout.
+Output levels: default prints only failures and the `EXTRACT_ROOT` permission
+warning (stderr); `-v` adds a summary line and host warnings, `-vv` a line per
+OK host, `-vvv` rsync commands and step output (and rsync `--verbose`). `-n`
+always prints the plan and runs no hooks, but does run `EXTRACT_HOST_CMD` and
+the files-list probe or globs list step. Exit codes: 0 all OK; 1 a host or
+hook failed; 2 usage or config error (kong's 80 is mapped to 2). Errors go to
+stderr, info to stdout.
 
 ## Conventions
 

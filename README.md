@@ -247,33 +247,44 @@ anything else that can pass it on. The script:
    a config with deb and rpm hosts, and an RPM host whose list generator
    breaks keeps syncing the files already tracked.
 2. expands the glob patterns, applying the symlink rule.
-3. checks every tracked path (see below), noting which are missing.
+3. checks every tracked path (see below) for existence, noting which
+   are missing.
 4. ends its output with an end marker. Output without it, as from a
    login shell that couldn't run the script, fails the host rather than
    being read as an empty list.
 
 rsync then gets the union of the remote list, the glob matches and the
 tracked paths, minus skipped symlinks, through a temporary local
-`--files-from` file, plus `--delete-missing-args`. A tracked path that
-no longer exists on the host is in the list on purpose: rsync deletes
-its local copy. An empty list is fine; rsync runs and transfers
-nothing.
+`--files-from` file, plus `--delete-missing-args`. Paths that no longer
+exist on the host are in the list on purpose, and rsync deletes their
+local copies. That covers tracked paths and also `EXTRACT_FILES_REMOTE`
+list entries that don't exist on the host: without globs, such an entry
+makes rsync exit 23 and fails the host; with globs, the host succeeds
+and the local copy (if any) is deleted, so `post_extract_git` commits
+the deletion. An empty list is fine; rsync runs and transfers nothing.
 
 **Tracked files.** extract keeps, per host, a manifest of the paths it
 has extracted: `$EXTRACT_ROOT/.extract-state/<host>.files`. It is
 rewritten only after rsync exits 0 or 24, never under `-n`, and kept as
 it was on any failure, so the next run retries the same deletions. It
 lives outside the host directory, so `post_extract_git` never commits it.
-Deletion only ever applies to paths in the manifest, that is, files
-extract itself extracted, so files that hooks create in the host
-directory (such as `post_extract_tarball`'s tarballs) are never touched.
-Some consequences:
+Deletion only ever reaches paths named in this run's
+`EXTRACT_FILES_REMOTE` list or in the manifest, never anything else in
+the host directory. That is what keeps files that hooks create there
+(such as `post_extract_tarball`'s tarballs) safe. Some consequences:
 
 - A file that drops out of the find-changes list but still exists on
   the host stays tracked and keeps being extracted, so a revert to the
   package default shows up as a diff instead of being frozen.
 - Files extracted before globs were enabled are not tracked, and are not
   cleaned up.
+- A tracked path stays tracked while it exists, even when no current
+  glob matches it any more (a pattern was removed from the list, or a
+  home left passwd). It is only checked for existence, not against the
+  symlink rule, so it keeps being extracted (see the known gap under
+  "Sensitive data"). To stop tracking a path, remove its line from
+  `$EXTRACT_ROOT/.extract-state/<host>.files`, or delete the file to
+  stop tracking everything for that host.
 - Without globs, nothing changes: a file deleted on the host stays in
   the local tree.
 
@@ -343,7 +354,15 @@ protecting the store instead:
   only in the root-only store, which already holds copies of such files
   from the files lists, but it can mislead a review. Closing the gap
   would need a second rsync without `--copy-links` for glob matches; that
-  was considered and declined as not worth the extra complexity.
+  was considered and declined as not worth the extra complexity. The
+  same window applies to a directory: one swapped for a symlink after
+  the check (`~/.ssh -> /root/.ssh`, say) is followed too. Separately,
+  tracked paths that no current glob matches any more (a pattern removed
+  from the list, or a home that left passwd) are only checked for
+  existence, never against the symlink rule, so they keep being
+  extracted, and any link in their path followed, indefinitely. To stop
+  that, remove the path from `$EXTRACT_ROOT/.extract-state/<host>.files`,
+  or delete that manifest.
 
 
 Hook scripts
@@ -393,10 +412,12 @@ What a failure does:
 |---|---|
 | Setup hook fails | Run aborts: no hosts, no teardown. Exit 1. |
 | Files-list probe fails or finds no non-empty list (several `EXTRACT_FILES_REMOTE` paths) | Host marked failed (timed out, if it exceeded `-t`); its pre-host hooks, rsync and post-host hooks are skipped, and the ssh error output is shown. |
-| Globs list step fails (ssh fails, times out or is interrupted, or the output has no end marker) | Host marked failed (timed out, if it exceeded `-t`); its pre-host hooks, rsync and post-host hooks are skipped, and the ssh error output is shown. Finding no `EXTRACT_FILES_REMOTE` list is not a failure. |
+| Globs list step fails (the manifest can't be read; ssh fails, times out or is interrupted; or the output has no end marker) | Host marked failed (timed out, if it exceeded `-t`); its pre-host hooks, rsync and post-host hooks are skipped, and the ssh error output is shown. Finding no `EXTRACT_FILES_REMOTE` list is not a failure. |
 | Pre-host hook fails | Host marked failed; its rsync and post-host hooks are skipped. |
 | rsync exits 24 (files vanished) | Host is OK, with a warning shown at `-v` and above. |
 | rsync exits non-zero otherwise (including 23) | Host marked failed. Post-host hooks still run. With globs, the manifest is not updated. |
+| Globs files list can't be written (`cannot write files list`) | Host marked failed and rsync is skipped. Its pre-host hooks have already run, and its post-host hooks still run. The manifest is kept as it was. |
+| Globs manifest can't be written after rsync (`cannot write manifest`) | Host marked failed. Post-host hooks still run. The old manifest is kept, so the next run retries the same deletions. |
 | rsync times out (`-t`) | Host marked timed out. Post-host hooks are skipped, because with `--delete` a half-finished rsync could otherwise be committed by `post_extract_git`. |
 | Post-host hook fails | Host marked failed. |
 | Teardown hook fails | Run reported as failed. Exit 1. |
@@ -418,7 +439,7 @@ data"), which goes to stderr at every level.
 | Level | All OK | Some failures |
 |---|---|---|
 | default | nothing | each failed or timed-out host or failed hook, with its error and rsync, probe or list step stderr, or hook output |
-| `-v` | one summary line, e.g. `42 hosts ok`, plus host warnings such as `h1: warning: skipped symlink /home/bob/.ssh/config` | summary line (`40 ok, 1 failed, 1 timed out`) plus each failure itemised |
+| `-v` | one summary line, e.g. `42 hosts ok`, plus host warnings such as `h1: warning: skipped symlink /home/bob/.ssh/config` | summary line (`40 ok, 1 failed, 1 timed out`) plus each failure itemised, plus host warnings as for all OK |
 | `-vv` | adds one line per successful host, with duration, and `<host>: no files list found; using globs and tracked files only` for a globs host with no `EXTRACT_FILES_REMOTE` list | same |
 | `-vvv` | adds rsync, files-list probe and list step commands, their output, hook output for successful steps, and per globs host `<host>: files list: N listed, N globbed, N tracked, N missing, N skipped` | same |
 
