@@ -12,7 +12,7 @@ sub _init {
 
   # Setup default directories
   my $config_dir = File::Spec->catdir( File::Spec->rootdir, 'etc', 'extract' );
-  $config_dir = File::Spec->catdir( $RealBin, File::Spec->updir, 'etc' )->canonpath
+  $config_dir = File::Spec->catdir( $RealBin, File::Spec->updir, 'etc' )
     unless -d $config_dir;
   my $scripts_dir = File::Spec->catdir( $config_dir, 'scripts' );
 
