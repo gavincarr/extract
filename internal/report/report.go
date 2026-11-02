@@ -37,6 +37,9 @@ func Report(log *slog.Logger, r *extract.Result) {
 	}
 	for _, h := range r.Hosts {
 		trace(h.Probe)
+		if h.Globs != nil {
+			say(LevelTrace, "%s: files list: %s", h.Host.Name, globsCounts(h.Globs))
+		}
 		for _, p := range h.PreHooks {
 			trace(p.Step)
 		}
@@ -116,6 +119,9 @@ func Report(log *slog.Logger, r *extract.Result) {
 
 	// Per-host success lines.
 	for _, h := range r.Hosts {
+		if h.Globs != nil && h.Globs.NoList {
+			say(slog.LevelDebug, "%s: no files list found; using globs and tracked files only", h.Host.Name)
+		}
 		if h.Status == extract.StatusOK {
 			say(slog.LevelDebug, "%s ok (%s)", h.Host, h.Duration.Round(100*time.Millisecond))
 		}
@@ -179,7 +185,13 @@ func PrintPlan(w io.Writer, r *extract.Result) {
 	}
 	hooks(r.SetupHooks)
 	for _, h := range r.Hosts {
-		if h.Probe != nil {
+		if h.Globs != nil {
+			if h.ProbeFailed() {
+				fmt.Fprintf(w, "built files list: %s (failed)\n", shellJoin(h.Probe.Argv))
+				continue
+			}
+			fmt.Fprintf(w, "built files list: %s -> %s\n", shellJoin(h.Probe.Argv), globsCounts(h.Globs))
+		} else if h.Probe != nil {
 			if h.ProbeFailed() {
 				// Nothing else would run for this host.
 				fmt.Fprintf(w, "checked files lists: %s (failed)\n", shellJoin(h.Probe.Argv))
@@ -191,9 +203,20 @@ func PrintPlan(w io.Writer, r *extract.Result) {
 		if h.Rsync != nil {
 			fmt.Fprintf(w, "would rsync: %s\n", shellJoin(h.Rsync.Argv))
 		}
+		if h.Globs != nil {
+			for _, d := range h.Globs.Deleted {
+				fmt.Fprintf(w, "would delete local copy: %s\n", d)
+			}
+		}
 		hooks(h.PostHooks)
 	}
 	hooks(r.TeardownHooks)
+}
+
+// globsCounts summarises how a glob host's files list was built.
+func globsCounts(g *extract.GlobsResult) string {
+	return fmt.Sprintf("%d listed, %d globbed, %d tracked, %d missing, %d skipped",
+		g.Listed, g.Globbed, g.Tracked, g.Missing, len(g.Skipped))
 }
 
 // ExitCode is 0 for a fully successful run, else 1.

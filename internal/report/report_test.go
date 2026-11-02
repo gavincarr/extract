@@ -324,3 +324,83 @@ func TestPrintPlanProbe(t *testing.T) {
 		t.Errorf("got\n%s\nwant\n%s", b.String(), want)
 	}
 }
+
+func globsHost(n string, g *extract.GlobsResult) extract.HostResult {
+	h := okHost(n)
+	h.Probe = &proc.StepResult{Argv: []string{"ssh", "-o", "BatchMode=yes", n, "sh", "-c", "'echo hi'"}, Stdout: "/etc/a\n"}
+	h.Globs = g
+	return h
+}
+
+const globsCmd = "ssh -o BatchMode=yes h1 sh -c ''\\''echo hi'\\'''"
+
+func TestReportGlobsNoListAtVV(t *testing.T) {
+	r := &extract.Result{Hosts: []extract.HostResult{globsHost("h1", &extract.GlobsResult{NoList: true})}}
+	want := "h1: no files list found; using globs and tracked files only\n"
+	o, _ := run(r, 2)
+	contains(t, "v2", o, want)
+	o, _ = run(r, 1)
+	if strings.Contains(o, "no files list") {
+		t.Errorf("v1 shows it: %q", o)
+	}
+	r.Hosts[0].Globs.NoList = false
+	o, _ = run(r, 2)
+	if strings.Contains(o, "no files list") {
+		t.Errorf("shown without NoList: %q", o)
+	}
+}
+
+func TestReportGlobsTraceSummary(t *testing.T) {
+	g := &extract.GlobsResult{Listed: 3, Globbed: 4, Tracked: 5, Missing: 1, Skipped: []string{"a", "b"}}
+	r := &extract.Result{Hosts: []extract.HostResult{globsHost("h1", g)}}
+	want := "h1: files list: 3 listed, 4 globbed, 5 tracked, 1 missing, 2 skipped\n"
+	o, _ := run(r, 3)
+	contains(t, "v3", o, want)
+	if i, j := strings.Index(o, "+ ssh"), strings.Index(o, want); i < 0 || j < i {
+		t.Errorf("summary not after traced step: %q", o)
+	}
+	o, _ = run(r, 2)
+	if strings.Contains(o, "files list:") {
+		t.Errorf("v2 shows it: %q", o)
+	}
+}
+
+func TestPlanGlobsHost(t *testing.T) {
+	g := &extract.GlobsResult{Listed: 3, Globbed: 4, Tracked: 5, Missing: 1, Skipped: []string{"a"},
+		Deleted: []string{"/root/h1/etc/old", "/root/h1/etc/older"}}
+	h := globsHost("h1", g)
+	var b bytes.Buffer
+	PrintPlan(&b, &extract.Result{Noop: true, Hosts: []extract.HostResult{h}})
+	want := "built files list: " + globsCmd + " -> 3 listed, 4 globbed, 5 tracked, 1 missing, 1 skipped\n" +
+		"would rsync: " + shellJoin(rsyncArgv) + "\n" +
+		"would delete local copy: /root/h1/etc/old\n" +
+		"would delete local copy: /root/h1/etc/older\n"
+	if b.String() != want {
+		t.Errorf("got\n%s\nwant\n%s", b.String(), want)
+	}
+}
+
+func TestPlanGlobsFailed(t *testing.T) {
+	h := globsHost("h1", &extract.GlobsResult{Failed: true})
+	h.Status = extract.StatusFailed
+	h.Probe.ExitCode = 255
+	var b bytes.Buffer
+	PrintPlan(&b, &extract.Result{Noop: true, Hosts: []extract.HostResult{h}})
+	if want := "built files list: " + globsCmd + " (failed)\n"; b.String() != want {
+		t.Errorf("got %q want %q", b.String(), want)
+	}
+}
+
+func TestReportGlobsFailureShowsStderr(t *testing.T) {
+	h := globsHost("h1", &extract.GlobsResult{Failed: true})
+	h.Status = extract.StatusFailed
+	h.Error = "files list script exited 255"
+	h.Probe.Stdout = "out\n"
+	h.Probe.Stderr = "ssh: refused\n"
+	h.Probe.ExitCode = 255
+	h.Rsync = nil
+	_, e := run(&extract.Result{Hosts: []extract.HostResult{h}}, 0)
+	if want := "h1: files list script exited 255\n  out\n  ssh: refused\n"; e != want {
+		t.Errorf("stderr %q want %q", e, want)
+	}
+}
