@@ -39,3 +39,10 @@
 #EXTRACT_GIT_REPO_MODE=ALL
 #EXTRACT_GIT_REPO_MODE=HOST
 
+# Directory that bare hook names are looked up in
+# (default /etc/extract/scripts)
+#EXTRACT_SCRIPTS_DIR=/etc/extract/scripts
+
+# Timeout in seconds applied to each hook script and to EXTRACT_HOST_CMD
+# (default 600, 0 = no timeout)
+#EXTRACT_HOOK_TIMEOUT=600
