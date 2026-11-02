@@ -178,6 +178,9 @@ func TestRunRsyncTimeoutSkipsPostHooks(t *testing.T) {
 	if h.Status != StatusTimedOut || h.Error != "rsync timed out after 200ms" {
 		t.Errorf("%v %q", h.Status, h.Error)
 	}
+	if h.Duration < 200*time.Millisecond {
+		t.Errorf("Duration = %v, want >= 200ms", h.Duration)
+	}
 	if len(testutil.HookLog(t, e.hooks)) != 0 {
 		t.Error("post hook ran")
 	}

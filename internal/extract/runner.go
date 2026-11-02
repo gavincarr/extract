@@ -109,9 +109,9 @@ func Run(cfg *config.Config, hosts []Host, opts Options) *Result {
 	return r
 }
 
-func runHost(cfg *config.Config, h Host, opts Options) HostResult {
+func runHost(cfg *config.Config, h Host, opts Options) (hr HostResult) {
 	start := time.Now()
-	hr := HostResult{Host: h}
+	hr.Host = h
 	defer func() { hr.Duration = time.Since(start) }()
 
 	hookArgs := []string{cfg.Root, cfg.Path, h.Name, cfg.FilesArg()}
