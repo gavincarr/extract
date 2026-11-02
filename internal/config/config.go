@@ -89,6 +89,11 @@ func Load(path string) (*Config, error) {
 	if c.ScriptsDir == "" {
 		c.ScriptsDir = defaultScriptsDir
 	}
+	// Hooks are exec'd with Root as their working directory, so a relative
+	// scripts dir must be fixed against the current directory now.
+	if c.ScriptsDir, err = filepath.Abs(c.ScriptsDir); err != nil {
+		return nil, fmt.Errorf("EXTRACT_SCRIPTS_DIR %q: %w", env["EXTRACT_SCRIPTS_DIR"], err)
+	}
 
 	secs := defaultHookTimeout
 	if v := strings.TrimSpace(env["EXTRACT_HOOK_TIMEOUT"]); v != "" {
@@ -140,15 +145,22 @@ func (c *Config) loadSource(env map[string]string) error {
 	c.Mode = set[0].mode
 	c.Source = env[set[0].key]
 	if c.Mode == ModeFilesLocal {
-		fi, err := os.Stat(c.Source)
+		// rsync runs in Root and resolves a relative --files-from there, as
+		// the Perl version did, so check that path. Source itself is passed
+		// to rsync and the hooks unchanged.
+		p := c.Source
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(c.Root, p)
+		}
+		fi, err := os.Stat(p)
 		if err != nil {
-			return fmt.Errorf("EXTRACT_FILES_LOCAL %s: %w", c.Source, err)
+			return fmt.Errorf("EXTRACT_FILES_LOCAL %s: %w", p, err)
 		}
 		if !fi.Mode().IsRegular() {
-			return fmt.Errorf("EXTRACT_FILES_LOCAL %s: not a regular file", c.Source)
+			return fmt.Errorf("EXTRACT_FILES_LOCAL %s: not a regular file", p)
 		}
-		if err := unix.Access(c.Source, unix.R_OK); err != nil {
-			return fmt.Errorf("EXTRACT_FILES_LOCAL %s: not readable: %w", c.Source, err)
+		if err := unix.Access(p, unix.R_OK); err != nil {
+			return fmt.Errorf("EXTRACT_FILES_LOCAL %s: not readable: %w", p, err)
 		}
 	}
 	return nil

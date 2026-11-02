@@ -313,3 +313,42 @@ func TestLoadSyntaxErrors(t *testing.T) {
 		wantErr(t, err, "line 3")
 	}
 }
+
+func TestLoadRelativeScriptsDirIsMadeAbsolute(t *testing.T) {
+	tmp, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(tmp, "s"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mkExec(t, filepath.Join(tmp, "s"), "a", 0o755)
+	t.Chdir(tmp)
+	c, err := Load(writeConf(t, tmp, "EXTRACT_ROOT="+tmp+"\nEXTRACT_TREE=/etc\nEXTRACT_SCRIPTS_DIR=s\nPRE_EXTRACT_SETUP=a\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.ScriptsDir != tmp+"/s" {
+		t.Errorf("ScriptsDir = %q", c.ScriptsDir)
+	}
+	if !reflect.DeepEqual(c.PreSetup, []string{tmp + "/s/a"}) {
+		t.Errorf("PreSetup = %v", c.PreSetup)
+	}
+}
+
+func TestLoadRelativeFilesLocalResolvesAgainstRoot(t *testing.T) {
+	root, cwd := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "list.txt"), []byte("/etc/hosts\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(cwd)
+	c, err := Load(writeConf(t, cwd, "EXTRACT_ROOT="+root+"\nEXTRACT_FILES_LOCAL=list.txt\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Source != "list.txt" || c.FilesArg() != "list.txt" {
+		t.Errorf("Source = %q FilesArg = %q", c.Source, c.FilesArg())
+	}
+	_, err = Load(writeConf(t, cwd, "EXTRACT_ROOT="+root+"\nEXTRACT_FILES_LOCAL=nope.txt\n"))
+	wantErr(t, err, filepath.Join(root, "nope.txt"))
+}

@@ -93,12 +93,12 @@ doesn't know are ignored; the hooks use their own, such as
 | `EXTRACT_HOST_CMD` | Alternative to `EXTRACT_HOSTS`: a command (run via `sh -c`) whose output is a whitespace-separated host list. A non-zero exit or empty output is fatal. |
 | `EXTRACT_TREE` | A tree on the remote host to extract in its entirety, e.g. `/etc`. Files land in `<root>/<host>/etc/...`. |
 | `EXTRACT_FILES_REMOTE` | Absolute path, on the remote host, of a file listing the files to extract. |
-| `EXTRACT_FILES_LOCAL` | Absolute path, on the local host, of a file listing the files to extract. Must be a readable regular file. |
+| `EXTRACT_FILES_LOCAL` | Path, on the local host, of a file listing the files to extract (a relative path is taken relative to `EXTRACT_ROOT`). Must be a readable regular file. |
 | `PRE_EXTRACT_SETUP` | Hook(s) run once, before any extracts. |
 | `PRE_EXTRACT_HOST` | Hook(s) run before each host's extract. |
 | `POST_EXTRACT_HOST` | Hook(s) run after each host's extract. |
 | `POST_EXTRACT_TEARDOWN` | Hook(s) run once, after all extracts. |
-| `EXTRACT_SCRIPTS_DIR` | Where bare hook names are looked up. Default `/etc/extract/scripts`. |
+| `EXTRACT_SCRIPTS_DIR` | Where bare hook names are looked up (a relative path is taken relative to the current directory). Default `/etc/extract/scripts`. |
 | `EXTRACT_HOOK_TIMEOUT` | Timeout in seconds for each hook and for `EXTRACT_HOST_CMD`. Default 600; 0 means none. |
 
 Hosts come from the command line if any are given, otherwise from
