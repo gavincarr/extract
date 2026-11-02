@@ -21,13 +21,14 @@ cd extract
 go build ./cmd/extract
 ```
 
-Installed layout:
+Installed layout (the config line is for a first install only and never
+overwrites an existing config):
 
 ```shell
 install -m 755 extract /usr/bin/extract
 install -d /etc/extract/scripts
-install -m 644 conf/extract.conf.dist /etc/extract/extract.conf
-install -m 755 scripts/* /etc/extract/scripts/
+[ -e /etc/extract/extract.conf ] || install -m 644 conf/extract.conf.dist /etc/extract/extract.conf
+find scripts -type f ! -name '*.go' -exec install -m 755 {} /etc/extract/scripts/ \;
 $EDITOR /etc/extract/extract.conf
 ```
 
@@ -160,8 +161,9 @@ Output
 ------
 
 Output is plain lines without timestamps, suitable for cron mail.
-Errors and warnings go to stderr; the summary, per-host lines, `-vvv`
-detail and the `-n` plan go to stdout.
+Errors go to stderr. Warnings (such as rsync exit 24), the summary,
+per-host lines, `-vvv` detail and the `-n` plan go to stdout, so
+warnings appear only at `-v` and above.
 
 | Level | All OK | Some failures |
 |---|---|---|
@@ -196,7 +198,7 @@ skipped or worked around; and the exit status is no longer 0 regardless.
 
 Three shipped hooks were fixed, and the installed copies in
 `/etc/extract/scripts` are separate from the repo, so **redeploy them**
-(`install -m 755 scripts/* /etc/extract/scripts/`):
+(`find scripts -type f ! -name '*.go' -exec install -m 755 {} /etc/extract/scripts/ \;`):
 
 - `post_extract_git` exited 1 whenever there was nothing to commit; it
   now commits only if something is staged.
