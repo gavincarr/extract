@@ -128,6 +128,9 @@ func Run(cfg *config.Config, hosts []Host, opts Options) *Result {
 		return r
 	}
 	r.TeardownHooks, _ = runHooks(ctx, cfg, stageTeardown, cfg.PostTeardown, setupArgs, opts.Noop)
+	if ctx.Err() != nil {
+		r.Interrupted = true
+	}
 	return r
 }
 

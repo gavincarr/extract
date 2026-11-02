@@ -376,3 +376,22 @@ func TestRunInterruptedDuringSetup(t *testing.T) {
 		t.Errorf("hook log: %q", got)
 	}
 }
+
+func TestRunInterruptedDuringTeardown(t *testing.T) {
+	e := newEnv(t)
+	e.cfg.PostTeardown = []string{e.hook(t, "teardown", "sleep 5")}
+	start := time.Now()
+	r := Run(e.cfg, hosts("h1"), Options{Ctx: cancelAfter(300 * time.Millisecond)})
+	if d := time.Since(start); d > 4*time.Second {
+		t.Fatalf("took too long: %v", d)
+	}
+	if !r.Interrupted || r.OK() {
+		t.Fatalf("Interrupted=%v OK=%v", r.Interrupted, r.OK())
+	}
+	if len(r.Hosts) != 1 || r.Hosts[0].Status != StatusOK {
+		t.Fatalf("hosts = %+v", r.Hosts)
+	}
+	if s := r.TeardownHooks[0].Step; s == nil || !s.Interrupted {
+		t.Errorf("teardown step = %+v, want interrupted", s)
+	}
+}
