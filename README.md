@@ -133,10 +133,14 @@ extract is configured with a shell-style file of `KEY=value` lines,
 optionally quoted, with `#` comments. The hook scripts `source` the same
 file, so it must stay valid shell: no spaces around `=`, and quote
 values containing spaces. extract takes values literally, as the 0.x
-(Perl) releases did: quotes are stripped but `$` is not expanded. Keys extract
-doesn't know are ignored; the hooks use their own, such as
-`EXTRACT_GIT_REPO_MODE` (`ALL` for one git repo at `EXTRACT_ROOT`,
-`HOST` for one repo per host directory). See
+(Perl) releases did: quotes are stripped but `$` is not expanded. A key in
+extract's namespaces (`EXTRACT_*`, `PRE_EXTRACT_*`, `POST_EXTRACT_*`) that
+extract doesn't know is a startup error (exit 2), with a did-you-mean hint
+for near misses such as `EXTRACT_HOSTS_CMD`. The one exception is
+`EXTRACT_GIT_REPO_MODE`, used by the shipped hooks (`ALL` for one git repo at
+`EXTRACT_ROOT`, `HOST` for one repo per host directory). Keys outside those
+namespaces are ignored, so give hook-specific keys of your own another
+prefix. See
 `conf/extract.conf.dist` for an annotated example.
 
 | Key | Meaning |
@@ -476,8 +480,9 @@ Exit codes:
   `EXTRACT_TREE` or `EXTRACT_FILES_LOCAL`, or an `EXTRACT_FILES_REMOTE`
   or globs key with no paths or patterns), a bad glob pattern or an
   unreadable globs file, an
-  invalid host name, a missing or non-executable hook, and a failed or
-  empty `EXTRACT_HOST_CMD`.
+  invalid host name, a missing or non-executable hook, an unknown
+  `EXTRACT_*`, `PRE_EXTRACT_*` or `POST_EXTRACT_*` config key, and a failed,
+  timed-out or empty `EXTRACT_HOST_CMD`.
 
 
 Upgrading from 0.x (Perl)
@@ -493,6 +498,14 @@ skipped or worked around; and the exit status is no longer 0 regardless.
 
 Also worth knowing:
 
+- Unknown keys in extract's namespaces (`EXTRACT_*`, `PRE_EXTRACT_*`,
+  `POST_EXTRACT_*`) were silently ignored before and are now a startup
+  error, so a typo that used to do nothing now stops the run. Rename any
+  private hook keys that use those prefixes (`EXTRACT_GIT_REPO_MODE` is
+  exempt).
+- If both `EXTRACT_HOSTS` and `EXTRACT_HOST_CMD` are set, the host list is
+  now both, where `EXTRACT_HOSTS` alone used to win and the command was
+  never run. A command that fails or prints nothing is fatal.
 - Hooks are executed directly rather than through `sh`, so each one
   must start with a `#!` line.
 - extract passes `--rsh=ssh -o BatchMode=yes`, which overrides any

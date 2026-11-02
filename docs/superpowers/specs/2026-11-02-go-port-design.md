@@ -85,8 +85,13 @@ conventions (`internal/version/VERSION`, embedded).
 
 - The format is shell-style `KEY=value` lines, optionally quoted, with
   `#` comments. Bash hooks `source` the same file, so it must remain
-  valid shell. Unknown keys are ignored; hooks use their own keys, such
-  as `EXTRACT_GIT_REPO_MODE`.
+  valid shell. A key starting `EXTRACT_`, `PRE_EXTRACT_` or `POST_EXTRACT_`
+  that extract doesn't read is a config error (exit 2), with a did-you-mean
+  hint when the nearest known key is within 3 edits or a third of the key's
+  length; all such keys are reported, sorted, with line numbers. The one
+  exception is `EXTRACT_GIT_REPO_MODE`, read by the shipped hooks. Keys
+  outside those namespaces are ignored, so hooks' own keys should use
+  another prefix.
 - Keys extract reads: `EXTRACT_ROOT` (required), `EXTRACT_HOSTS`,
   `EXTRACT_HOST_CMD`, exactly one source (`EXTRACT_TREE`,
   `EXTRACT_FILES_LOCAL`, or "remote files": `EXTRACT_FILES_REMOTE`

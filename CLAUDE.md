@@ -46,7 +46,11 @@ CGO_ENABLED=1 go test -race ./...                # -race needs cgo, which is off
   Config::Tiny) and validates it, including resolving and checking hook
   paths at load time. `globs.go` loads `EXTRACT_FILES_GLOBS` and
   `EXTRACT_FILES_GLOBS_FILE`; `TestLoadShippedGlobsDist` parses
-  `conf/extract.globs.dist`.
+  `conf/extract.globs.dist`. `keys.go` holds `knownKeys` (the single
+  list of keys extract reads) and `hookKeys`; a key in `EXTRACT_*`,
+  `PRE_EXTRACT_*` or `POST_EXTRACT_*` outside both is a config error
+  with a did-you-mean hint. `TestKnownKeysMatchSource` fails if a
+  key literal is read without being listed.
 - `internal/extract`: `ResolveHosts`, `RsyncArgs` and `Run`. With globs,
   `listscript.go` builds the one-line POSIX sh script sent as
   `ssh ... sh -c '<script>'` (no newline, no `!`; must run under dash and

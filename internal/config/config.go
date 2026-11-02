@@ -68,8 +68,11 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("config %s: %w", path, err)
 	}
-	env, err := parseFile(abs)
+	env, lines, err := parseFile(abs)
 	if err != nil {
+		return nil, err
+	}
+	if err := checkKeys(abs, lines); err != nil {
 		return nil, err
 	}
 	c := &Config{Path: abs}

@@ -12,23 +12,28 @@ var keyRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // parseFile reads a shell-style KEY=value file. Values are literal, as with
 // Config::Tiny: quotes are stripped but nothing is expanded. Later
 // duplicate keys override earlier ones. Errors name the file, and for
-// syntax errors the line number.
-func parseFile(path string) (map[string]string, error) {
+// syntax errors the line number. lines maps each key to the line it first
+// appears on.
+func parseFile(path string) (env map[string]string, lines map[string]int, err error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("cannot read config file %s: %w", path, err)
+		return nil, nil, fmt.Errorf("cannot read config file %s: %w", path, err)
 	}
-	env := map[string]string{}
+	env = map[string]string{}
+	lines = map[string]int{}
 	for i, line := range strings.Split(string(data), "\n") {
 		key, val, ok, err := parseLine(strings.TrimSuffix(line, "\r"))
 		if err != nil {
-			return nil, fmt.Errorf("config file %s line %d: %w", path, i+1, err)
+			return nil, nil, fmt.Errorf("config file %s line %d: %w", path, i+1, err)
 		}
 		if ok {
 			env[key] = val
+			if _, seen := lines[key]; !seen {
+				lines[key] = i + 1
+			}
 		}
 	}
-	return env, nil
+	return env, lines, nil
 }
 
 // parseLine parses one line; ok is false for blank and comment lines.
