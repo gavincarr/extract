@@ -55,28 +55,34 @@ func ParseHost(s string) (Host, error) {
 	return h, nil
 }
 
-// ResolveHosts picks the host list: command-line args, else cfg.Hosts, else
-// the output of cfg.HostCmd. The result is validated and de-duplicated.
-// Cancelling ctx kills a running host command; the error then wraps
-// ctx.Err().
+// ResolveHosts picks the host list: command-line args if any, otherwise
+// cfg.Hosts followed by the output of cfg.HostCmd. The result is validated
+// and de-duplicated, keeping the first occurrence. A host command that
+// fails, times out or prints no hosts is an error even when cfg.Hosts
+// supplied some. Cancelling ctx kills a running host command; the error
+// then wraps ctx.Err().
 func ResolveHosts(ctx context.Context, args []string, cfg *config.Config) ([]Host, error) {
 	var raw []string
-	switch {
-	case len(args) > 0:
+	if len(args) > 0 {
 		raw = args
-	case len(cfg.Hosts) > 0:
-		raw = cfg.Hosts
-	case cfg.HostCmd != "":
-		res := proc.RunContext(ctx, []string{"sh", "-c", cfg.HostCmd}, "", cfg.HookTimeout)
-		switch {
-		case res.Interrupted:
-			return nil, fmt.Errorf("host command interrupted: %w", ctx.Err())
-		case res.TimedOut:
-			return nil, fmt.Errorf("host command timed out after %s", cfg.HookTimeout)
-		case res.Failed():
-			return nil, fmt.Errorf("host command failed: %s", failDetail(res))
+	} else {
+		raw = append(raw, cfg.Hosts...)
+		if cfg.HostCmd != "" {
+			res := proc.RunContext(ctx, []string{"sh", "-c", cfg.HostCmd}, "", cfg.HookTimeout)
+			switch {
+			case res.Interrupted:
+				return nil, fmt.Errorf("host command interrupted: %w", ctx.Err())
+			case res.TimedOut:
+				return nil, fmt.Errorf("host command timed out after %s", cfg.HookTimeout)
+			case res.Failed():
+				return nil, fmt.Errorf("host command failed: %s", failDetail(res))
+			}
+			out := strings.Fields(res.Stdout)
+			if len(out) == 0 {
+				return nil, fmt.Errorf("host command returned no hosts")
+			}
+			raw = append(raw, out...)
 		}
-		raw = strings.Fields(res.Stdout)
 	}
 	if len(raw) == 0 {
 		return nil, fmt.Errorf("no hosts specified (arguments, HOSTS or HOST_CMD)")

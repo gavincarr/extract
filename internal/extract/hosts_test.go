@@ -69,27 +69,49 @@ func TestResolveHostsPrecedence(t *testing.T) {
 		t.Fatalf("args: %v %v", hs, err)
 	}
 	cfg.Hosts = []string{"h1", "u@h2"}
+	cfg.HostCmd = ""
 	hs, err = ResolveHosts(context.Background(), nil, cfg)
 	if err != nil || !reflect.DeepEqual(names(hs), []string{"h1", "u@h2"}) {
 		t.Fatalf("cfg hosts: %v %v", hs, err)
 	}
 }
 
-func TestResolveHostsCmdNotRunWhenHostsSet(t *testing.T) {
+func TestResolveHostsMerge(t *testing.T) {
+	cfg := &config.Config{
+		Hosts:   []string{"h1", "u@h2", "h3"},
+		HostCmd: `printf 'h4\nh1\nh5 h3\n'`,
+	}
+	hs, err := ResolveHosts(context.Background(), nil, cfg)
+	want := []string{"h1", "u@h2", "h3", "h4", "h5"}
+	if err != nil || !reflect.DeepEqual(names(hs), want) {
+		t.Fatalf("got %v %v; want %v", names(hs), err, want)
+	}
+}
+
+func TestResolveHostsCmdNotRunWhenArgsGiven(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "ran")
-	cmd := "touch " + marker
-	check := func(name string, args, hosts []string, want []string) {
-		t.Helper()
-		hs, err := ResolveHosts(context.Background(), args, &config.Config{Hosts: hosts, HostCmd: cmd})
-		if err != nil || !reflect.DeepEqual(names(hs), want) {
-			t.Fatalf("%s: %v %v", name, hs, err)
-		}
-		if _, err := os.Stat(marker); err == nil {
-			t.Fatalf("%s: HostCmd was run", name)
+	cfg := &config.Config{Hosts: []string{"h1"}, HostCmd: "touch " + marker + "; echo h2"}
+	hs, err := ResolveHosts(context.Background(), []string{"h9"}, cfg)
+	if err != nil || !reflect.DeepEqual(names(hs), []string{"h9"}) {
+		t.Fatalf("got %v %v", hs, err)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("HostCmd was run")
+	}
+}
+
+func TestResolveHostsCmdProblemsFatalWithHosts(t *testing.T) {
+	cases := []struct{ cmd, want string }{
+		{`true`, "host command returned no hosts"},
+		{`printf ' \n\t'`, "host command returned no hosts"},
+		{`echo boom >&2; exit 1`, "host command failed: boom"},
+	}
+	for _, c := range cases {
+		hs, err := ResolveHosts(context.Background(), nil, &config.Config{Hosts: []string{"h1"}, HostCmd: c.cmd})
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%q: hosts %v err %v; want contains %q", c.cmd, hs, err, c.want)
 		}
 	}
-	check("cfg hosts", nil, []string{"h1"}, []string{"h1"})
-	check("args", []string{"h9"}, nil, []string{"h9"})
 }
 
 func TestResolveHostsFromCmd(t *testing.T) {
@@ -107,7 +129,7 @@ func TestResolveHostsCmdFailures(t *testing.T) {
 		want    string
 	}{
 		{`echo boom >&2; exit 1`, 0, "boom"},
-		{`true`, 0, "no hosts"},
+		{`true`, 0, "host command returned no hosts"},
 		{`sleep 5`, 200 * time.Millisecond, "timed out"},
 		{`echo 'ok -bad'`, 0, "-bad"},
 	}

@@ -199,6 +199,30 @@ func TestE2EHostCmdFailureExits2(t *testing.T) {
 	}
 }
 
+func TestE2EHostsMergedWithHostCmd(t *testing.T) {
+	f := testutil.NewFakeRsync(t)
+	conf := writeConf(t, "EXTRACT_HOSTS=\"h1 h2\"\nEXTRACT_HOST_CMD=\"echo h2 h3\"\n")
+	code, out, errs := runCLI("-c", conf)
+	if code != 0 || out != "" || errs != "" {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errs)
+	}
+	if n := len(f.Calls()); n != 3 {
+		t.Fatalf("got %d rsync calls, want 3", n)
+	}
+}
+
+func TestE2EEmptyHostCmdWithHostsExits2(t *testing.T) {
+	f := testutil.NewFakeRsync(t)
+	conf := writeConf(t, "EXTRACT_HOSTS=\"h1\"\nEXTRACT_HOST_CMD=\"true\"\n")
+	code, out, errs := runCLI("-c", conf)
+	if code != 2 || out != "" || errs != "extract: host command returned no hosts\n" {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errs)
+	}
+	if n := len(f.Calls()); n != 0 {
+		t.Fatalf("rsync called %d times", n)
+	}
+}
+
 func TestE2EInvalidHostExits2(t *testing.T) {
 	f := testutil.NewFakeRsync(t)
 	conf := writeConf(t, "EXTRACT_HOSTS=\"h1\"\n")

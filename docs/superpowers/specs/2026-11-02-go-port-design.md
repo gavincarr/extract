@@ -117,9 +117,12 @@ conventions (`internal/version/VERSION`, embedded).
 
 ### Host resolution
 
-The host list comes from CLI arguments if any are given; otherwise from
-`EXTRACT_HOSTS` (split on whitespace); otherwise from the stdout of
-`EXTRACT_HOST_CMD` (run via `sh -c`, output split on whitespace). Hosts
+The host list comes from CLI arguments if any are given (`EXTRACT_HOST_CMD`
+is then not run). Otherwise it is `EXTRACT_HOSTS` (split on whitespace)
+followed by the stdout of `EXTRACT_HOST_CMD` (run via `sh -c`, output split
+on whitespace), de-duplicated keeping the first occurrence. A host command
+that fails, times out or prints no hosts is an error even when
+`EXTRACT_HOSTS` supplied hosts (it is not silently skipped). Hosts
 may be `user@host`. The user is passed to rsync, and the local directory
 is named after the host part only.
 

@@ -143,7 +143,7 @@ doesn't know are ignored; the hooks use their own, such as
 |---|---|
 | `EXTRACT_ROOT` | Required. Directory in which per-host trees are stored. Must exist and be writable. |
 | `EXTRACT_HOSTS` | Hosts to extract from (quoted, whitespace separated). |
-| `EXTRACT_HOST_CMD` | Alternative to `EXTRACT_HOSTS`: a command (run via `sh -c`) whose output is a whitespace-separated host list. A non-zero exit or empty output is fatal. |
+| `EXTRACT_HOST_CMD` | A command (run via `sh -c`) whose output is a whitespace-separated host list, added after any `EXTRACT_HOSTS` hosts (duplicates dropped). A non-zero exit, a timeout or empty output is fatal, even when `EXTRACT_HOSTS` is set. Not run when hosts are given on the command line. |
 | `EXTRACT_TREE` | A tree on the remote host to extract in its entirety, e.g. `/etc`. Files land in `<root>/<host>/etc/...`. |
 | `EXTRACT_FILES_REMOTE` | Absolute path, on the remote host, of a file listing the files to extract. May be a quoted, whitespace-separated list of paths, e.g. `"/var/cache/rpm-find-changes/etc.txt /var/cache/deb-find-changes/etc.txt"` for a mix of RPM- and DEB-based hosts: for each host, the first path that exists and is non-empty there is used. extract finds it with one `ssh -o BatchMode=yes [user@]host` call (a `test -s` loop in POSIX sh) before anything else for that host; a single path runs no probe. Paths can't contain whitespace. |
 | `EXTRACT_FILES_LOCAL` | Path, on the local host, of a file listing the files to extract (a relative path is taken relative to `EXTRACT_ROOT`). Must be a readable regular file. |
@@ -156,8 +156,9 @@ doesn't know are ignored; the hooks use their own, such as
 | `EXTRACT_SCRIPTS_DIR` | Where bare hook names are looked up (a relative path is taken relative to the current directory). Default `/etc/extract/scripts`. |
 | `EXTRACT_HOOK_TIMEOUT` | Timeout in seconds for each hook and for `EXTRACT_HOST_CMD`. Default 600; 0 means none. |
 
-Hosts come from the command line if any are given, otherwise from
-`EXTRACT_HOSTS`, otherwise from `EXTRACT_HOST_CMD`.
+Hosts come from the command line if any are given. Otherwise they are
+the `EXTRACT_HOSTS` hosts followed by the `EXTRACT_HOST_CMD` output,
+with duplicates dropped (the first occurrence wins).
 
 Exactly one source must be set: `EXTRACT_TREE`, `EXTRACT_FILES_LOCAL`,
 or remote files. Remote files means `EXTRACT_FILES_REMOTE`, globs (from
