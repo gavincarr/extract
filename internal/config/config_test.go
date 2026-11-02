@@ -268,3 +268,48 @@ func TestLoadShippedDist(t *testing.T) {
 		t.Errorf("hosts=%v cmd=%q", c.Hosts, c.HostCmd)
 	}
 }
+
+func TestLoadValuesAreLiteral(t *testing.T) {
+	tmp := t.TempDir()
+	base := "EXTRACT_ROOT=" + tmp + "\nEXTRACT_TREE=/etc\n"
+	tests := []struct{ line, want string }{
+		{`EXTRACT_HOST_CMD="awk '{print $1}' /etc/hosts.list"`, `awk '{print $1}' /etc/hosts.list`},
+		{`EXTRACT_HOST_CMD=echo $HOME`, `echo $HOME`},
+		{`EXTRACT_HOST_CMD=echo ${HOME}/x # comment`, `echo ${HOME}/x`},
+		{`EXTRACT_HOST_CMD='echo "$HOME"'`, `echo "$HOME"`},
+		{`EXTRACT_HOST_CMD="a \"b\" c"`, `a "b" c`},
+		{`EXTRACT_HOST_CMD="a\\b \n"`, `a\b \n`},
+		{`EXTRACT_HOST_CMD="x" # comment`, `x`},
+		{`export   EXTRACT_HOST_CMD=a#b`, `a#b`},
+		{"EXTRACT_HOST_CMD=first\nEXTRACT_HOST_CMD=second", `second`},
+		{"  # indented comment\n\nEXTRACT_HOST_CMD = spaced", `spaced`},
+		{"EXTRACT_HOST_CMD=a=b\t# tab comment", `a=b`},
+	}
+	for _, tc := range tests {
+		c, err := Load(writeConf(t, tmp, base+tc.line+"\n"))
+		if err != nil {
+			t.Errorf("%s: %v", tc.line, err)
+			continue
+		}
+		if c.HostCmd != tc.want {
+			t.Errorf("%s: got %q want %q", tc.line, c.HostCmd, tc.want)
+		}
+	}
+}
+
+func TestLoadSyntaxErrors(t *testing.T) {
+	tmp := t.TempDir()
+	base := "EXTRACT_ROOT=" + tmp + "\nEXTRACT_TREE=/etc\n"
+	for _, line := range []string{
+		`EXTRACT_HOST_CMD="unterminated`,
+		`EXTRACT_HOST_CMD='unterminated`,
+		`EXTRACT_HOST_CMD="a \"`,
+		`EXTRACT_HOST_CMD="a"b`,
+		`1BAD=x`,
+		`BAD-KEY=x`,
+		`NOEQUALS`,
+	} {
+		_, err := Load(writeConf(t, tmp, base+line+"\n"))
+		wantErr(t, err, "line 3")
+	}
+}

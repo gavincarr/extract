@@ -287,11 +287,12 @@ it, then the Perl is removed.
 - `internal/report/`: `Result` → output lines + exit code
 - `internal/version/`: `VERSION` + embed
 
-Libraries: kong (+ kong-help-colours), `slog`, godotenv (`godotenv.Read`
-parses the shell-style config). *(My call.)* godotenv expands `$VAR` in
-unquoted and double-quoted values like the shell does, whereas Perl's
-Config::Tiny did not. Hooks already see the shell's interpretation, so
-matching it is an improvement.
+Libraries: kong (+ kong-help-colours), `slog`. The shell-style config is
+read by a small parser in `internal/config` that takes values literally,
+like Perl's Config::Tiny did: surrounding quotes are stripped (`\"` and
+`\\` unescape inside double quotes), `#` comments and a leading `export`
+are allowed, and there is no `$` expansion, so existing configs keep
+meaning what they meant to the Perl version.
 
 Unchanged and kept: `scripts/*` (bash hooks), `bin/extract_git_report`,
 `conf/extract.conf.dist`, `conf/cron.d/extract`.

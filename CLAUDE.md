@@ -29,8 +29,10 @@ CGO_ENABLED=1 go test -race ./...                # -race needs cgo, which is off
 - `cmd/extract`: kong CLI (`cli.go`) and `run` in `main.go`, which wires
   config, hosts, runner and reporter together and maps results to exit codes.
   Every kong field has an explicit `name:` tag; `-v` is an `int` counter.
-- `internal/config`: loads the shell-style config with godotenv and validates
-  it, including resolving and checking hook paths at load time.
+- `internal/config`: loads the shell-style config with its own literal
+  parser (`parse.go`: quotes stripped, no `$` expansion, like Perl's
+  Config::Tiny) and validates it, including resolving and checking hook
+  paths at load time.
 - `internal/extract`: `ResolveHosts`, `RsyncArgs` and `Run`.
 - `internal/proc`: runs one command with a timeout in its own process group
   (kill `-pgid`: SIGTERM, then SIGKILL after a grace period).
@@ -60,7 +62,7 @@ hooks must therefore exit 0 on their normal success paths.
 
 ### Config file is dual-format
 
-`conf/extract.conf.dist` is parsed by godotenv in Go **and** `source`d by the
+`conf/extract.conf.dist` is parsed by `internal/config` in Go **and** `source`d by the
 bash hooks and `bin/extract_git_report`. New settings must stay valid as both
 `KEY=value` and shell assignments: no spaces around `=`, quote multi-word
 values. `TestLoadShippedDist` parses the dist file.

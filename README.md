@@ -79,9 +79,11 @@ Configuration
 extract is configured with a shell-style file of `KEY=value` lines,
 optionally quoted, with `#` comments. The hook scripts `source` the same
 file, so it must stay valid shell: no spaces around `=`, and quote
-values containing spaces. Keys extract doesn't know are ignored; the
-hooks use their own, such as `EXTRACT_GIT_REPO_MODE` (`ALL` for one git
-repo at `EXTRACT_ROOT`, `HOST` for one repo per host directory). See
+values containing spaces. extract takes values literally, as the Perl
+version did: quotes are stripped but `$` is not expanded. Keys extract
+doesn't know are ignored; the hooks use their own, such as
+`EXTRACT_GIT_REPO_MODE` (`ALL` for one git repo at `EXTRACT_ROOT`,
+`HOST` for one repo per host directory). See
 `conf/extract.conf.dist` for an annotated example.
 
 | Key | Meaning |

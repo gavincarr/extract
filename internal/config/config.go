@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/joho/godotenv"
 	"golang.org/x/sys/unix"
 )
 
@@ -55,9 +54,9 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("config %s: %w", path, err)
 	}
-	env, err := godotenv.Read(abs)
+	env, err := parseFile(abs)
 	if err != nil {
-		return nil, fmt.Errorf("cannot read config file %s: %w", abs, err)
+		return nil, err
 	}
 	c := &Config{Path: abs}
 
