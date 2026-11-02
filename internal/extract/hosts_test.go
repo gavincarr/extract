@@ -1,6 +1,8 @@
 package extract
 
 import (
+	"context"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -48,12 +50,12 @@ func names(hs []Host) []string {
 
 func TestResolveHostsPrecedence(t *testing.T) {
 	cfg := &config.Config{Hosts: []string{"h1"}, HostCmd: "echo cmdhost"}
-	hs, err := ResolveHosts([]string{"h9"}, cfg)
+	hs, err := ResolveHosts(context.Background(), []string{"h9"}, cfg)
 	if err != nil || !reflect.DeepEqual(names(hs), []string{"h9"}) {
 		t.Fatalf("args: %v %v", hs, err)
 	}
 	cfg.Hosts = []string{"h1", "u@h2"}
-	hs, err = ResolveHosts(nil, cfg)
+	hs, err = ResolveHosts(context.Background(), nil, cfg)
 	if err != nil || !reflect.DeepEqual(names(hs), []string{"h1", "u@h2"}) {
 		t.Fatalf("cfg hosts: %v %v", hs, err)
 	}
@@ -61,7 +63,7 @@ func TestResolveHostsPrecedence(t *testing.T) {
 
 func TestResolveHostsFromCmd(t *testing.T) {
 	cfg := &config.Config{HostCmd: `printf 'h1\nh2\r\n u@h3 '`}
-	hs, err := ResolveHosts(nil, cfg)
+	hs, err := ResolveHosts(context.Background(), nil, cfg)
 	if err != nil || !reflect.DeepEqual(names(hs), []string{"h1", "h2", "u@h3"}) {
 		t.Fatalf("got %v %v", hs, err)
 	}
@@ -79,7 +81,7 @@ func TestResolveHostsCmdFailures(t *testing.T) {
 		{`echo 'ok -bad'`, 0, "-bad"},
 	}
 	for _, c := range cases {
-		_, err := ResolveHosts(nil, &config.Config{HostCmd: c.cmd, HookTimeout: c.timeout})
+		_, err := ResolveHosts(context.Background(), nil, &config.Config{HostCmd: c.cmd, HookTimeout: c.timeout})
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%q: err = %v; want contains %q", c.cmd, err, c.want)
 		}
@@ -87,18 +89,32 @@ func TestResolveHostsCmdFailures(t *testing.T) {
 }
 
 func TestResolveHostsNone(t *testing.T) {
-	_, err := ResolveHosts(nil, &config.Config{})
+	_, err := ResolveHosts(context.Background(), nil, &config.Config{})
 	if err == nil || !strings.Contains(err.Error(), "no hosts") {
 		t.Fatalf("err = %v", err)
 	}
 }
 
 func TestResolveHostsDuplicates(t *testing.T) {
-	hs, err := ResolveHosts([]string{"h1", "h1"}, &config.Config{})
+	hs, err := ResolveHosts(context.Background(), []string{"h1", "h1"}, &config.Config{})
 	if err != nil || !reflect.DeepEqual(names(hs), []string{"h1"}) {
 		t.Fatalf("got %v %v", hs, err)
 	}
-	if _, err := ResolveHosts([]string{"h1", "u@h1"}, &config.Config{}); err == nil {
+	if _, err := ResolveHosts(context.Background(), []string{"h1", "u@h1"}, &config.Config{}); err == nil {
 		t.Fatal("expected error for conflicting entries")
+	}
+}
+
+func TestResolveHostsCmdInterrupted(t *testing.T) {
+	start := time.Now()
+	_, err := ResolveHosts(cancelAfter(200*time.Millisecond), nil, &config.Config{HostCmd: "sleep 5"})
+	if d := time.Since(start); d > 4*time.Second {
+		t.Fatalf("took too long: %v", d)
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if !strings.Contains(err.Error(), "host command interrupted") {
+		t.Errorf("err = %q", err)
 	}
 }

@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -80,6 +81,13 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 		return 0
 	}
 
+	// Children run in their own process groups, so a terminal Ctrl-C or a
+	// kill of extract would not reach them; cancel instead, which kills the
+	// running child's group (EXTRACT_HOST_CMD, a hook or rsync) and starts
+	// nothing further.
+	ctx, stop := signalContext(signal.Ignored)
+	defer stop()
+
 	log := report.NewLogger(stdout, stderr, cli.Verbose)
 	fail := func(err error) int {
 		log.Error("extract: " + err.Error())
@@ -96,16 +104,15 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 	if err != nil {
 		return fail(err)
 	}
-	hosts, err := extract.ResolveHosts(cli.Hosts, cfg)
+	hosts, err := extract.ResolveHosts(ctx, cli.Hosts, cfg)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			// Interrupted, not misconfigured: exit 1 like any interrupted run.
+			log.Error("extract: " + err.Error())
+			return 1
+		}
 		return fail(err)
 	}
-
-	// Children run in their own process groups, so a terminal Ctrl-C or a
-	// kill of extract would not reach them; cancel the run instead, which
-	// kills the running step's group and starts nothing further.
-	ctx, stop := signalContext(signal.Ignored)
-	defer stop()
 
 	r := extract.Run(cfg, hosts, extract.Options{
 		Ctx:       ctx,

@@ -219,3 +219,24 @@ func TestE2EIgnoredSIGHUPDoesNotInterrupt(t *testing.T) {
 		t.Errorf("rsync calls = %d, want 2", n)
 	}
 }
+
+func TestE2ESIGTERMDuringHostCmd(t *testing.T) {
+	guard := make(chan os.Signal, 1)
+	signal.Notify(guard, syscall.SIGTERM)
+	defer signal.Stop(guard)
+
+	f := testutil.NewFakeRsync(t)
+	conf := writeConf(t, "EXTRACT_HOST_CMD=\"sleep 5; echo h1\"\n")
+	time.AfterFunc(300*time.Millisecond, func() { _ = syscall.Kill(os.Getpid(), syscall.SIGTERM) })
+	start := time.Now()
+	code, out, errs := runCLI("-c", conf)
+	if d := time.Since(start); d > 4*time.Second {
+		t.Fatalf("took too long: %v", d)
+	}
+	if code != 1 || out != "" || errs != "extract: host command interrupted: context canceled\n" {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errs)
+	}
+	if n := len(f.Calls()); n != 0 {
+		t.Errorf("rsync calls = %d, want 0", n)
+	}
+}
