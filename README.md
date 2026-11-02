@@ -196,8 +196,8 @@ the globs file is reported with the file name and line number.
 
 The home directories are the distinct home fields from
 `getent passwd`, or from `/etc/passwd` when `getent` is missing (as on
-some busybox systems). A home is skipped if it is `/`, is not an
-absolute path, doesn't exist or isn't a directory (`/nonexistent`), or
+some busybox systems). A home is skipped if it is `/` or resolves to
+`/` (such as `//`, or a symlink to `/`), is not an absolute path, doesn't exist or isn't a directory (`/nonexistent`), or
 contains whitespace or glob characters. The home part is used literally,
 never glob-expanded. Homes shared by many system accounts, such as
 `/usr/sbin` or `/bin`, are expanded once and normally match nothing.

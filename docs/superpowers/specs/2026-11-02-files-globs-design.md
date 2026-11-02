@@ -220,7 +220,7 @@ handling, and also under `-n` (it only reads).
 - **Home directories.** These are the distinct home fields from
   `getent passwd`, falling back to `/etc/passwd` when `getent` is
   missing (as on some busybox systems). A home is skipped if it:
-  - is `/`;
+  - is `/`, or resolves to `/` (`//`, or a symlink to `/`);
   - doesn't exist or isn't a directory (`/nonexistent`); or
   - contains whitespace or glob metacharacters.
 

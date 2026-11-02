@@ -341,6 +341,23 @@ func TestListCRInRemoteListAndManifest(t *testing.T) {
 	})
 }
 
+// A home that is, or resolves to, / would put every user's ~/ pattern at
+// the root of the filesystem. Such a home contributes nothing.
+func TestListRootHomeSkipped(t *testing.T) {
+	eachShell(t, func(t *testing.T) {
+		f := testutil.NewFakeSSH(t)
+		base := t.TempDir()
+		rootLink := symlink(t, "/", filepath.Join(base, "rooth"))
+		a := filepath.Join(base, "a")
+		kh := mkfile(t, filepath.Join(a, "etc", "passwd"))
+		f.SetPasswd(t, passwd("//", "/", rootLink, a))
+		r := runList(t, nil, []string{"~/etc/*"}, "")
+		sameSet(t, "Globbed", r.Globbed, []string{kh})
+		sameSet(t, "Symlinks", r.Symlinks, nil)
+		sameSet(t, "Skipped", r.Skipped, nil)
+	})
+}
+
 func TestListQuotingAndBang(t *testing.T) {
 	eachShell(t, func(t *testing.T) {
 		testutil.NewFakeSSH(t)

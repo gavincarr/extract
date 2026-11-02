@@ -88,14 +88,15 @@ const (
 
 	// Home directories: field 6 of getent passwd (or /etc/passwd), split
 	// on newlines with globbing off. A home is skipped unless absolute and
-	// a directory, if it is / (after dropping one trailing slash), if it
-	// has whitespace or *?[, or if seen before. Each ~/ pattern's remainder
-	// is expanded after the quoted, never-globbed home.
+	// a directory, if it is or resolves to / (after dropping one trailing
+	// slash, so // too), if it has whitespace or *?[, or if seen before.
+	// Each ~/ pattern's remainder is expanded after the quoted, never-globbed
+	// home.
 	lsHomeHead = `hs=$( { getent passwd 2>/dev/null || cat /etc/passwd; } | cut -s -d: -f6 ); s=$nl; set -f; ` +
 		`for h in $hs; do set +f; h=${h%/}; case $h in /*) ;; *) continue;; esac; ` +
 		`case $h in *" "*|*"$tab"*|*"$cr"*|*\**|*\?*|*\[*) continue;; esac; ` +
 		`case $s in *"$nl$h$nl"*) continue;; esac; s=$s$h$nl; ` +
-		`test -d "$h" || continue; rh=$(readlink -f -- "$h"); test -n "$rh" || continue; ` +
+		`test -d "$h" || continue; rh=$(readlink -f -- "$h"); case $rh in ""|/) continue;; esac; ` +
 		`ld=; for p in `
 	lsHomeTail = `; do for m in "$h"/$p; do chk "$m" "$h" "$rh"; done; done; done; set +f; `
 
