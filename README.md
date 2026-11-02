@@ -59,8 +59,11 @@ Usage
 
 Hosts given on the command line override the hosts in the config file.
 A host may be `user@host`; the user is passed to rsync and the local
-directory is named after the host part only. Host names that are empty,
-contain `/`, start with `-`, or are `.` or `..` are rejected.
+directory is named after the host part only. A host is rejected if its
+host part is empty, is `.` or `..`, starts with `-`, or contains `/`,
+`@`, `:`, whitespace or control characters; or if its user part is
+empty, starts with `-`, or contains `/`, `:`, whitespace or control
+characters.
 
 rsync is run from `EXTRACT_ROOT` with `--archive --copy-links --delete`
 and `--rsh=ssh -o BatchMode=yes`, so a host-key or password prompt fails
@@ -179,7 +182,11 @@ At `-vvv` rsync runs with `--verbose` instead of `--quiet`.
 Exit codes:
 
 - `0`: every host and every hook succeeded.
-- `1`: the run happened, but a host failed or timed out, or a hook failed.
+- `1`: the run happened, but a host failed or timed out, or a hook
+  failed, or the run was interrupted. On Ctrl-C (SIGINT), SIGTERM or
+  SIGHUP extract kills the running rsync or hook (its whole process
+  group), starts nothing further (no more hosts, no teardown hooks),
+  reports `run interrupted: N of M hosts attempted` and exits 1.
 - `2`: usage or configuration error; nothing was extracted. This covers
   bad flags, an unreadable config, a missing or unwritable
   `EXTRACT_ROOT`, bad source keys (none set, or more than one), an
@@ -197,6 +204,18 @@ unreadable `-c` file, or both `EXTRACT_FILES_REMOTE` and
 `EXTRACT_FILES_LOCAL` being set are now fatal rather than silently
 skipped or worked around; and the exit status is no longer 0 regardless.
 `-v` now prints a summary rather than progress chatter.
+
+Also worth knowing:
+
+- Hooks are executed directly rather than through `sh`, so each one
+  must start with a `#!` line.
+- extract passes `--rsh=ssh -o BatchMode=yes`, which overrides any
+  `RSYNC_RSH` in the environment; put ssh options (an identity file, say)
+  in `~/.ssh/config` instead.
+- Timeouts now really kill a slow rsync (Perl's `alarm` left it finishing
+  in the background), so a host that routinely needs longer than `-t`
+  will report "timed out"; raise `-t` for slow links.
+- Config values are literal, as with Perl: no `$` expansion.
 
 Three shipped hooks were fixed, and the installed copies in
 `/etc/extract/scripts` are separate from the repo, so **redeploy them**
