@@ -7,9 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 `extract` rsyncs a set of files off one or more remote hosts into per-host
 trees under a local `EXTRACT_ROOT`, running optional hook scripts before and
 after. Typical use is a nightly cron job whose `post_extract_git` hook commits
-remote config changes to git. It is a Go port (branch `go-port`) of an older
-Perl implementation. The Perl (`bin/extract`, `lib/`, `t/`) is still in the
-tree but is pending removal (Task 11); don't extend it. User docs are
+remote config changes to git. User docs are
 `README.md`; the design authority is
 `docs/superpowers/specs/2026-11-02-go-port-design.md`.
 
@@ -30,7 +28,7 @@ CGO_ENABLED=1 go test -race ./...                # -race needs cgo, which is off
   config, hosts, runner and reporter together and maps results to exit codes.
   Every kong field has an explicit `name:` tag; `-v` is an `int` counter.
 - `internal/config`: loads the shell-style config with its own literal
-  parser (`parse.go`: quotes stripped, no `$` expansion, like Perl's
+  parser (`parse.go`: quotes stripped, no `$` expansion, like
   Config::Tiny) and validates it, including resolving and checking hook
   paths at load time.
 - `internal/extract`: `ResolveHosts`, `RsyncArgs` and `Run`.

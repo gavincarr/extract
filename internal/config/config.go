@@ -146,7 +146,7 @@ func (c *Config) loadSource(env map[string]string) error {
 	c.Source = env[set[0].key]
 	if c.Mode == ModeFilesLocal {
 		// rsync runs in Root and resolves a relative --files-from there, as
-		// the Perl version did, so check that path. Source itself is passed
+		// the 0.x releases did, so check that path. Source itself is passed
 		// to rsync and the hooks unchanged.
 		p := c.Source
 		if !filepath.IsAbs(p) {

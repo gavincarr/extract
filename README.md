@@ -82,8 +82,8 @@ Configuration
 extract is configured with a shell-style file of `KEY=value` lines,
 optionally quoted, with `#` comments. The hook scripts `source` the same
 file, so it must stay valid shell: no spaces around `=`, and quote
-values containing spaces. extract takes values literally, as the Perl
-version did: quotes are stripped but `$` is not expanded. Keys extract
+values containing spaces. extract takes values literally, as the 0.x
+(Perl) releases did: quotes are stripped but `$` is not expanded. Keys extract
 doesn't know are ignored; the hooks use their own, such as
 `EXTRACT_GIT_REPO_MODE` (`ALL` for one git repo at `EXTRACT_ROOT`,
 `HOST` for one repo per host directory). See
@@ -194,10 +194,10 @@ Exit codes:
   empty `EXTRACT_HOST_CMD`.
 
 
-Upgrading from the Perl version
--------------------------------
+Upgrading from 0.x (Perl)
+-------------------------
 
-The Go version keeps the Perl version's command line, config format,
+The Go version (1.0) keeps the Perl 0.x releases' command line, config format,
 hook arguments and rsync behaviour, but it treats failures as failures:
 hook exit codes were ignored before and are not now; a missing hook, an
 unreadable `-c` file, or both `EXTRACT_FILES_REMOTE` and

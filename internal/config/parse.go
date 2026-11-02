@@ -10,7 +10,7 @@ import (
 var keyRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // parseFile reads a shell-style KEY=value file. Values are literal, as with
-// Perl's Config::Tiny: quotes are stripped but nothing is expanded. Later
+// Config::Tiny: quotes are stripped but nothing is expanded. Later
 // duplicate keys override earlier ones. Errors name the file, and for
 // syntax errors the line number.
 func parseFile(path string) (map[string]string, error) {
