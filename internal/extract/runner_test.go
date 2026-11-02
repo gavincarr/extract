@@ -629,3 +629,333 @@ func TestRunFilesLocalAndTreeFilesFrom(t *testing.T) {
 		t.Errorf("ssh calls = %d", n)
 	}
 }
+
+// newGlobsEnv is newEnv for a globs-only host: EXTRACT_FILES_GLOBS is
+// ~/.ssh/* and the fake getent lists one home, which is returned.
+func newGlobsEnv(t *testing.T) (*env, string) {
+	t.Helper()
+	e := newEnv(t)
+	e.cfg.Mode = config.ModeFilesRemote
+	e.cfg.Source = ""
+	e.cfg.Globs = []string{"~/.ssh/*"}
+	a := mkdir(t, filepath.Join(t.TempDir(), "a"))
+	e.ssh.SetPasswd(t, passwd(a))
+	return e, a
+}
+
+func (e *env) writeManifest(t *testing.T, host string, paths ...string) {
+	t.Helper()
+	if err := WriteManifest(ManifestPath(e.root, host), paths); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (e *env) manifest(t *testing.T, host string) []string {
+	t.Helper()
+	m, err := ReadManifest(ManifestPath(e.root, host))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+// filesFromArg returns the value of the one --files-from argument.
+func filesFromArg(t *testing.T, argv []string) string {
+	t.Helper()
+	var got []string
+	for _, a := range argv {
+		if v, ok := strings.CutPrefix(a, "--files-from="); ok {
+			got = append(got, v)
+		}
+	}
+	if len(got) != 1 {
+		t.Fatalf("want one --files-from in %q", argv)
+	}
+	return got[0]
+}
+
+func checkList(t *testing.T, what string, got, want []string) {
+	t.Helper()
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("%s:\n got  %q\n want %q", what, got, want)
+	}
+}
+
+func TestRunGlobsHealthy(t *testing.T) {
+	e, a := newGlobsEnv(t)
+	base := t.TempDir()
+	x := mkfile(t, filepath.Join(base, "x"))
+	y := mkfile(t, filepath.Join(base, "y"))
+	// Remote list entries are relative to /, with or without the slash.
+	rl := testutil.WriteFile(t, base, "list.txt", x+"\n"+strings.TrimPrefix(y, "/")+"\n")
+	e.cfg.Source = filepath.Join(base, "none.txt") + " " + rl
+	conf := mkfile(t, filepath.Join(a, ".ssh", "config"))
+	kh := mkfile(t, filepath.Join(a, ".ssh", "known_hosts"))
+	e.cfg.PreHost = []string{e.hook(t, "pre", "")}
+	e.cfg.PostHost = []string{e.hook(t, "post", "")}
+
+	r := Run(e.cfg, hosts("h1"), Options{})
+	h := r.Hosts[0]
+	if h.Status != StatusOK || !r.OK() {
+		t.Fatalf("status %v err %q", h.Status, h.Error)
+	}
+	if h.Globs == nil || h.Globs.Failed || h.Globs.NoList || h.Probe == nil || h.ProbeFailed() {
+		t.Fatalf("Globs %+v Probe %v", h.Globs, h.Probe)
+	}
+	if g := h.Globs; g.Listed != 2 || g.Globbed != 2 || g.Tracked != 0 || g.Missing != 0 {
+		t.Errorf("counts %+v", g)
+	}
+	if h.FilesFrom != rl {
+		t.Errorf("FilesFrom %q, want %q", h.FilesFrom, rl)
+	}
+	if c := e.ssh.Calls(); len(c) != 1 || c[0].Dir != e.root {
+		t.Errorf("ssh calls %+v", c)
+	}
+	calls := e.fake.Calls()
+	if len(calls) != 1 {
+		t.Fatalf("rsync calls = %d", len(calls))
+	}
+	argv := calls[0].Argv
+	if !slices.Contains(argv, "--delete-missing-args") || !slices.Contains(argv, "h1:/") {
+		t.Errorf("rsync argv %q", argv)
+	}
+	lf := filesFromArg(t, argv)
+	if strings.HasPrefix(lf, ":") {
+		t.Errorf("--files-from=%s should be a local path", lf)
+	}
+	if _, err := os.Stat(lf); !os.IsNotExist(err) {
+		t.Errorf("list file %s not removed: %v", lf, err)
+	}
+	want := []string{x, y, conf, kh}
+	checkList(t, "rsync list", e.fake.List("h1"), want)
+	checkList(t, "manifest", e.manifest(t, "h1"), want)
+	R, C := e.root, "/cfg/extract.conf"
+	checkList(t, "hook log", testutil.HookLog(t, e.hooks), []string{
+		"pre " + R + " " + C + " h1 " + rl + " cwd=" + R,
+		"post " + R + " " + C + " h1 " + rl + " cwd=" + R,
+	})
+}
+
+func TestRunGlobsDedup(t *testing.T) {
+	e, a := newGlobsEnv(t)
+	conf := mkfile(t, filepath.Join(a, ".ssh", "config"))
+	e.cfg.Source = testutil.WriteFile(t, t.TempDir(), "list.txt", conf+"\n")
+	e.writeManifest(t, "h1", conf)
+	h := Run(e.cfg, hosts("h1"), Options{}).Hosts[0]
+	if h.Status != StatusOK {
+		t.Fatalf("status %v err %q", h.Status, h.Error)
+	}
+	if g := h.Globs; g.Listed != 1 || g.Globbed != 1 || g.Tracked != 1 {
+		t.Errorf("counts %+v", g)
+	}
+	checkList(t, "rsync list", e.fake.List("h1"), []string{conf})
+	checkList(t, "manifest", e.manifest(t, "h1"), []string{conf})
+}
+
+func TestRunGlobsMissingFromManifestListed(t *testing.T) {
+	e, a := newGlobsEnv(t)
+	conf := mkfile(t, filepath.Join(a, ".ssh", "config"))
+	gone := filepath.Join(a, ".ssh", "id_rsa.pub")
+	e.writeManifest(t, "h1", conf, gone)
+	h := Run(e.cfg, hosts("h1"), Options{}).Hosts[0]
+	if h.Status != StatusOK || h.Globs.Missing != 1 {
+		t.Fatalf("status %v err %q Globs %+v", h.Status, h.Error, h.Globs)
+	}
+	checkList(t, "rsync list", e.fake.List("h1"), []string{conf, gone})
+	checkList(t, "manifest", e.manifest(t, "h1"), []string{conf})
+}
+
+func TestRunGlobsNoListIsOK(t *testing.T) {
+	e, a := newGlobsEnv(t)
+	base := t.TempDir()
+	e.cfg.Source = filepath.Join(base, "rpm.txt") + " " + filepath.Join(base, "deb.txt")
+	conf := mkfile(t, filepath.Join(a, ".ssh", "config"))
+	e.cfg.PreHost = []string{e.hook(t, "pre", "")}
+	r := Run(e.cfg, hosts("h1"), Options{})
+	h := r.Hosts[0]
+	if h.Status != StatusOK || !r.OK() || h.Globs == nil || !h.Globs.NoList || h.ProbeFailed() {
+		t.Fatalf("status %v err %q Globs %+v", h.Status, h.Error, h.Globs)
+	}
+	if h.FilesFrom != "" {
+		t.Errorf("FilesFrom %q", h.FilesFrom)
+	}
+	R := e.root
+	checkList(t, "hook log", testutil.HookLog(t, e.hooks), []string{"pre " + R + " /cfg/extract.conf h1  cwd=" + R})
+	checkList(t, "rsync list", e.fake.List("h1"), []string{conf})
+}
+
+// symlinkSetup makes a's ~/.ssh/config a link outside the home, with a
+// stale local copy of it in the host directory, plus a regular known_hosts.
+func symlinkSetup(t *testing.T, e *env, a string) (link, local, kh string) {
+	t.Helper()
+	outside := mkfile(t, filepath.Join(t.TempDir(), "secret"))
+	link = symlink(t, outside, filepath.Join(a, ".ssh", "config"))
+	kh = mkfile(t, filepath.Join(a, ".ssh", "known_hosts"))
+	local = mkfile(t, filepath.Join(e.root, "h1", link))
+	return link, local, kh
+}
+
+func TestRunGlobsSymlinkDeletesLocalCopy(t *testing.T) {
+	e, a := newGlobsEnv(t)
+	link, local, kh := symlinkSetup(t, e, a)
+	e.writeManifest(t, "h1", link, kh)
+	tarball := filepath.Join(e.root, "h1", "h1-20261102.tar.gz")
+	e.cfg.PreHost = []string{e.hook(t, "pre", `touch "$1/$3/$3-20261102.tar.gz"`)}
+	h := Run(e.cfg, hosts("h1"), Options{}).Hosts[0]
+	if h.Status != StatusOK {
+		t.Fatalf("status %v err %q", h.Status, h.Error)
+	}
+	if _, err := os.Lstat(local); !os.IsNotExist(err) {
+		t.Errorf("local copy %s still there: %v", local, err)
+	}
+	if _, err := os.Stat(tarball); err != nil {
+		t.Errorf("hook-created file gone: %v", err)
+	}
+	checkList(t, "Deleted", h.Globs.Deleted, []string{local})
+	checkList(t, "warnings", h.Warnings, []string{"skipped symlink " + link + " (deleted local copy)"})
+	checkList(t, "rsync list", e.fake.List("h1"), []string{kh})
+	checkList(t, "manifest", e.manifest(t, "h1"), []string{kh})
+}
+
+func TestRunGlobsSymlinkDeleteStaysInHostDir(t *testing.T) {
+	e := newEnv(t)
+	e.cfg.Mode, e.cfg.Source, e.cfg.Globs = config.ModeFilesRemote, "", []string{"/x/*"}
+	e.cfg.Root = mkdir(t, filepath.Join(e.root, "r"))
+	victim := mkfile(t, filepath.Join(e.root, "victim"))
+	// A symlinked directory inside the host tree (say, made by a hook)
+	// must not lead the delete outside it either.
+	symlink(t, e.root, filepath.Join(e.cfg.Root, "h1", "link"))
+	e.ssh.SetHost("h1", 0, "L /../../victim\nL /link/victim\nE\n", "", 0)
+	h := Run(e.cfg, hosts("h1"), Options{}).Hosts[0]
+	if h.Status != StatusOK {
+		t.Fatalf("status %v err %q", h.Status, h.Error)
+	}
+	if _, err := os.Stat(victim); err != nil {
+		t.Errorf("file outside the host dir deleted: %v", err)
+	}
+	if len(h.Globs.Deleted) != 0 {
+		t.Errorf("Deleted %q", h.Globs.Deleted)
+	}
+	checkList(t, "warnings", h.Warnings, []string{"skipped symlink /../../victim", "skipped symlink /link/victim"})
+}
+
+func TestRunGlobsNoopWritesNothing(t *testing.T) {
+	e, a := newGlobsEnv(t)
+	link, local, kh := symlinkSetup(t, e, a)
+	e.cfg.PreHost = []string{e.hook(t, "pre", "")}
+	h := Run(e.cfg, hosts("h1"), Options{Noop: true}).Hosts[0]
+	if h.Status != StatusOK {
+		t.Fatalf("status %v err %q", h.Status, h.Error)
+	}
+	if n := len(e.ssh.Calls()); n != 1 {
+		t.Errorf("ssh calls = %d, want 1 (the list step runs under noop)", n)
+	}
+	if _, err := os.Lstat(local); err != nil {
+		t.Errorf("local copy deleted under noop: %v", err)
+	}
+	checkList(t, "Deleted", h.Globs.Deleted, []string{local})
+	checkList(t, "warnings", h.Warnings, []string{"skipped symlink " + link})
+	if _, err := os.Stat(filepath.Join(e.root, ".extract-state")); !os.IsNotExist(err) {
+		t.Errorf("state dir created under noop: %v", err)
+	}
+	calls := e.fake.Calls()
+	if len(calls) != 1 || !slices.Contains(calls[0].Argv, "--dry-run") {
+		t.Fatalf("rsync calls %+v", calls)
+	}
+	checkList(t, "rsync list", e.fake.List("h1"), []string{kh})
+	if l := testutil.HookLog(t, e.hooks); len(l) != 0 {
+		t.Errorf("hooks ran: %q", l)
+	}
+}
+
+func TestRunGlobsRsyncFailureKeepsManifest(t *testing.T) {
+	e, a := newGlobsEnv(t)
+	conf := mkfile(t, filepath.Join(a, ".ssh", "config"))
+	mkfile(t, filepath.Join(a, ".ssh", "known_hosts"))
+	e.writeManifest(t, "h1", conf)
+	before, err := os.ReadFile(ManifestPath(e.root, "h1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.fake.SetHost("h1", 23, "", 0)
+	e.cfg.PostHost = []string{e.hook(t, "post", "")}
+	h := Run(e.cfg, hosts("h1"), Options{}).Hosts[0]
+	if h.Status != StatusFailed || h.Error != "rsync exited 23" {
+		t.Errorf("status %v err %q", h.Status, h.Error)
+	}
+	after, err := os.ReadFile(ManifestPath(e.root, "h1"))
+	if err != nil || string(after) != string(before) {
+		t.Errorf("manifest changed: %q -> %q (%v)", before, after, err)
+	}
+	if l := testutil.HookLog(t, e.hooks); len(l) != 1 {
+		t.Errorf("post hook log %q", l)
+	}
+}
+
+func TestRunGlobsListStepFails(t *testing.T) {
+	e, a := newGlobsEnv(t)
+	conf := mkfile(t, filepath.Join(a, ".ssh", "config"))
+	stderr := "ssh: connect to host h1 port 22: Connection refused\n"
+	e.ssh.SetHost("h1", 255, "", stderr, 0)
+	e.cfg.PreHost = []string{e.hook(t, "pre", "")}
+	e.cfg.PostHost = []string{e.hook(t, "post", "")}
+	r := Run(e.cfg, hosts("h1", "h2"), Options{})
+	h1, h2 := r.Hosts[0], r.Hosts[1]
+	if h1.Status != StatusFailed || h1.Error != "files list step exited 255" {
+		t.Errorf("h1: %v %q", h1.Status, h1.Error)
+	}
+	if h1.Globs == nil || !h1.Globs.Failed || !h1.ProbeFailed() || h1.Probe == nil || h1.Probe.Stderr != stderr || h1.Rsync != nil {
+		t.Errorf("h1: Globs %+v Probe %+v Rsync %v", h1.Globs, h1.Probe, h1.Rsync)
+	}
+	if len(h1.PreHooks) != 1 || h1.PreHooks[0].Step != nil || len(h1.PostHooks) != 1 || h1.PostHooks[0].Step != nil {
+		t.Errorf("h1 hooks should be listed but not run: %+v %+v", h1.PreHooks, h1.PostHooks)
+	} else if h1.PreHooks[0].Args[3] != "" {
+		t.Errorf("h1 hook $4 = %q", h1.PreHooks[0].Args[3])
+	}
+	if _, err := os.Stat(ManifestPath(e.root, "h1")); !os.IsNotExist(err) {
+		t.Errorf("h1 manifest written: %v", err)
+	}
+	if h2.Status != StatusOK || h2.ProbeFailed() || r.OK() {
+		t.Errorf("h2 %v %q, OK=%v", h2.Status, h2.Error, r.OK())
+	}
+	if n := len(e.fake.Calls()); n != 1 {
+		t.Errorf("rsync calls = %d, want 1", n)
+	}
+	checkList(t, "h2 rsync list", e.fake.List("h2"), []string{conf})
+	if l := testutil.HookLog(t, e.hooks); len(l) != 2 || !strings.Contains(l[0], " h2 ") {
+		t.Errorf("hook log %q", l)
+	}
+}
+
+func TestRunGlobsWipedTree(t *testing.T) {
+	e, a := newGlobsEnv(t)
+	conf := mkfile(t, filepath.Join(a, ".ssh", "config"))
+	kh := mkfile(t, filepath.Join(a, ".ssh", "known_hosts"))
+	other := mkfile(t, filepath.Join(t.TempDir(), "other"))
+	e.writeManifest(t, "h1", conf, kh, other)
+	if _, err := os.Stat(filepath.Join(e.root, "h1")); !os.IsNotExist(err) {
+		t.Fatalf("host dir exists: %v", err)
+	}
+	h := Run(e.cfg, hosts("h1"), Options{}).Hosts[0]
+	if h.Status != StatusOK || len(h.Warnings) != 0 {
+		t.Fatalf("status %v err %q warnings %q", h.Status, h.Error, h.Warnings)
+	}
+	checkList(t, "rsync list", e.fake.List("h1"), []string{conf, kh, other})
+	checkList(t, "manifest", e.manifest(t, "h1"), []string{conf, kh, other})
+}
+
+func TestRunGlobsManifestReadError(t *testing.T) {
+	e, _ := newGlobsEnv(t)
+	mkdir(t, ManifestPath(e.root, "h1"))
+	e.cfg.PreHost = []string{e.hook(t, "pre", "")}
+	h := Run(e.cfg, hosts("h1"), Options{}).Hosts[0]
+	if h.Status != StatusFailed || !strings.HasPrefix(h.Error, "cannot read manifest: ") {
+		t.Errorf("status %v err %q", h.Status, h.Error)
+	}
+	if n := len(e.ssh.Calls()); n != 0 {
+		t.Errorf("ssh calls = %d", n)
+	}
+	if h.Rsync != nil || h.Probe != nil || h.ProbeFailed() || len(h.PreHooks) != 1 || h.PreHooks[0].Step != nil {
+		t.Errorf("Rsync %v Probe %v PreHooks %+v", h.Rsync, h.Probe, h.PreHooks)
+	}
+}

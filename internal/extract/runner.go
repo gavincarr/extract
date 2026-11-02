@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/gavincarr/extract/internal/config"
@@ -57,12 +59,33 @@ type HostResult struct {
 	Rsync     *proc.StepResult // nil if rsync was not run
 	PreHooks  []HookResult
 	PostHooks []HookResult
-	Duration  time.Duration
+	// Globs is the outcome of building the files list from
+	// EXTRACT_FILES_GLOBS. It is nil when globs are not used, and also when
+	// the list step was never run (the manifest could not be read); when it
+	// is set, Probe is the list step.
+	Globs    *GlobsResult
+	Duration time.Duration
 }
 
-// ProbeFailed reports whether the files list probe ran without choosing a
-// files list, in which case nothing else was run for the host.
-func (h HostResult) ProbeFailed() bool { return h.Probe != nil && h.FilesFrom == "" }
+// GlobsResult describes the files list built for a host using
+// EXTRACT_FILES_GLOBS.
+type GlobsResult struct {
+	Failed                            bool     // the list step failed; nothing else ran
+	NoList                            bool     // remote lists configured, none non-empty
+	Listed, Globbed, Tracked, Missing int      // counts for -vvv and the plan
+	Skipped                           []string // L and X paths
+	Deleted                           []string // local copies removed for L paths (or, under noop, that would be)
+}
+
+// ProbeFailed reports whether the files list probe (or, with globs, the
+// list step) ran without producing a files list, in which case nothing
+// else was run for the host.
+func (h HostResult) ProbeFailed() bool {
+	if h.Globs != nil {
+		return h.Globs.Failed
+	}
+	return h.Probe != nil && h.FilesFrom == ""
+}
 
 // Result is the outcome of a whole run.
 type Result struct {
@@ -161,7 +184,20 @@ func runHost(ctx context.Context, cfg *config.Config, h Host, opts Options) (hr 
 	}
 
 	hr.FilesFrom = cfg.FilesArg()
-	if paths := cfg.FilesRemote(); cfg.Mode == config.ModeFilesRemote && len(paths) > 1 {
+	var lr *ListResult // set when using globs
+	if cfg.UsesGlobs() {
+		hr.FilesFrom = ""
+		var status Status
+		var msg string
+		lr, status, msg = buildList(ctx, cfg, h, opts, &hr)
+		if msg != "" {
+			hookArgs = []string{cfg.Root, cfg.Path, h.Name, ""}
+			skip()
+			fail(status, msg)
+			return hr
+		}
+		hr.FilesFrom = lr.Remote
+	} else if paths := cfg.FilesRemote(); cfg.Mode == config.ModeFilesRemote && len(paths) > 1 {
 		// Read-only, so it runs under noop too, like EXTRACT_HOST_CMD.
 		step := proc.RunContext(ctx, ProbeArgs(h, paths), cfg.Root, opts.Timeout)
 		hr.Probe = &step
@@ -195,7 +231,18 @@ func runHost(ctx context.Context, cfg *config.Config, h Host, opts Options) (hr 
 		return hr
 	}
 
-	step := proc.RunContext(ctx, RsyncArgs(cfg, h, hr.FilesFrom, opts.Noop, opts.Verbosity), cfg.Root, opts.Timeout)
+	argv := RsyncArgs(cfg, h, hr.FilesFrom, opts.Noop, opts.Verbosity)
+	if lr != nil {
+		deleteSymlinkCopies(cfg.Root, h.Name, lr.Symlinks, opts.Noop, &hr)
+		listFile, err := writeListFile(rsyncList(lr))
+		if err != nil {
+			fail(StatusFailed, fmt.Sprintf("cannot write files list: %v", err))
+			return finishHost(ctx, cfg, hookArgs, opts.Noop, &hr, false)
+		}
+		defer os.Remove(listFile)
+		argv = GlobsRsyncArgs(h, listFile, opts.Noop, opts.Verbosity)
+	}
+	step := proc.RunContext(ctx, argv, cfg.Root, opts.Timeout)
 	hr.Rsync = &step
 	switch {
 	case step.Err != nil:
@@ -215,11 +262,27 @@ func runHost(ctx context.Context, cfg *config.Config, h Host, opts Options) (hr 
 	}
 	rsyncOK := hr.Status == StatusOK
 
-	hr.PostHooks, msg = runHooks(ctx, cfg, stagePostHost, cfg.PostHost, hookArgs, opts.Noop)
-	if msg != "" && rsyncOK {
-		fail(StatusFailed, msg)
+	// rsync exited 0 or 24: record what is now extracted. On any failure the
+	// old manifest stays, so the next run retries the same deletions.
+	if lr != nil && rsyncOK && !opts.Noop {
+		if err := WriteManifest(ManifestPath(cfg.Root, h.Name), manifestList(lr)); err != nil {
+			fail(StatusFailed, fmt.Sprintf("cannot write manifest: %v", err))
+			rsyncOK = false
+		}
 	}
-	return hr
+	return finishHost(ctx, cfg, hookArgs, opts.Noop, &hr, rsyncOK)
+}
+
+// finishHost runs the post-host hooks. A hook failure fails the host only
+// if it has not already failed.
+func finishHost(ctx context.Context, cfg *config.Config, hookArgs []string, noop bool, hr *HostResult, ok bool) HostResult {
+	var msg string
+	hr.PostHooks, msg = runHooks(ctx, cfg, stagePostHost, cfg.PostHost, hookArgs, noop)
+	if msg != "" && ok {
+		hr.Status = StatusFailed
+		hr.Error = msg
+	}
+	return *hr
 }
 
 // skipHooks lists hooks that were not run.
@@ -257,4 +320,165 @@ func runHooks(ctx context.Context, cfg *config.Config, stage string, paths, args
 		}
 	}
 	return out, ""
+}
+
+// buildList reads the host's manifest and runs the list step with it on
+// stdin, recording the step and its outcome in hr and adding a warning per
+// skipped glob match. On failure it returns the status and message for the
+// host; nothing else is then run for it.
+func buildList(ctx context.Context, cfg *config.Config, h Host, opts Options, hr *HostResult) (*ListResult, Status, string) {
+	manifest, err := ReadManifest(ManifestPath(cfg.Root, h.Name))
+	if err != nil {
+		return nil, StatusFailed, fmt.Sprintf("cannot read manifest: %v", err)
+	}
+	var stdin strings.Builder
+	for _, p := range manifest {
+		stdin.WriteString(p)
+		stdin.WriteByte('\n')
+	}
+	// Read-only, so it runs under noop too, like the probe.
+	step := proc.RunContextStdin(ctx, ListArgs(h, cfg.FilesRemote(), cfg.Globs), cfg.Root, opts.Timeout, strings.NewReader(stdin.String()))
+	hr.Probe = &step
+	lr, status, msg := listOutcome(step, opts.Timeout)
+	hr.Globs = &GlobsResult{Failed: msg != ""}
+	if msg != "" {
+		return nil, status, msg
+	}
+	lr.Symlinks = dedup(lr.Symlinks)
+	lr.Skipped = dedup(lr.Skipped)
+	g := hr.Globs
+	g.NoList = lr.NoList
+	g.Listed, g.Globbed, g.Tracked, g.Missing = len(lr.Listed), len(lr.Globbed), len(lr.Tracked), len(lr.Missing)
+	for _, p := range lr.Symlinks {
+		hr.Warnings = append(hr.Warnings, "skipped symlink "+p)
+		g.Skipped = append(g.Skipped, p)
+	}
+	for _, p := range lr.Skipped {
+		hr.Warnings = append(hr.Warnings, "skipped name containing a newline "+p)
+		g.Skipped = append(g.Skipped, p)
+	}
+	return &lr, StatusOK, ""
+}
+
+// deleteSymlinkCopies removes the local copy, if any, of each glob match
+// that was skipped as a symlink, so that the tree doesn't keep a frozen
+// copy from before it became a link. It never deletes outside the host
+// directory, nor a directory. Under noop it only records what it would
+// delete.
+func deleteSymlinkCopies(root, host string, symlinks []string, noop bool, hr *HostResult) {
+	hostDir := filepath.Join(root, host)
+	realHost, err := filepath.EvalSymlinks(hostDir)
+	if err != nil {
+		return // no host directory (wiped, or noop on a new host): no copies
+	}
+	for _, p := range symlinks {
+		local := filepath.Join(hostDir, p) // Join cleans the result
+		if !strings.HasPrefix(local, hostDir+string(os.PathSeparator)) {
+			continue
+		}
+		// Guard against a symlinked directory inside the host tree (rsync
+		// never makes one, but a hook might) leading the delete elsewhere.
+		parent, err := filepath.EvalSymlinks(filepath.Dir(local))
+		if err != nil || (parent != realHost && !strings.HasPrefix(parent, realHost+string(os.PathSeparator))) {
+			continue
+		}
+		target := filepath.Join(parent, filepath.Base(local))
+		st, err := os.Lstat(target)
+		if err != nil || st.IsDir() {
+			continue
+		}
+		note := "" // under noop the plan reports Deleted instead
+		if !noop {
+			if err := os.Remove(target); err != nil {
+				note = fmt.Sprintf(" (cannot delete local copy: %v)", err)
+			} else {
+				note = " (deleted local copy)"
+			}
+		}
+		if noop || note == " (deleted local copy)" {
+			hr.Globs.Deleted = append(hr.Globs.Deleted, local)
+		}
+		if i := slices.Index(hr.Warnings, "skipped symlink "+p); i >= 0 {
+			hr.Warnings[i] += note
+		}
+	}
+}
+
+// rsyncList is the files list given to rsync for a globs host: the
+// remote-list, glob, tracked and missing paths, deduplicated, minus every
+// symlinked glob match. Missing paths are listed so that
+// --delete-missing-args deletes their local copies.
+func rsyncList(lr *ListResult) []string {
+	return without(dedup(lr.Listed, lr.Globbed, lr.Tracked, lr.Missing), lr.Symlinks)
+}
+
+// manifestList is the new manifest after a successful rsync: the paths in
+// the rsync list that exist on the host.
+func manifestList(lr *ListResult) []string {
+	return without(dedup(lr.Listed, lr.Globbed, lr.Tracked), lr.Symlinks)
+}
+
+// absPath makes a files-list path absolute. Remote-list entries are
+// relative to / (rsync's source); writing them absolute keeps the manifest
+// valid for the list script, which tests manifest paths as given.
+func absPath(p string) string {
+	if strings.HasPrefix(p, "/") {
+		return p
+	}
+	return "/" + p
+}
+
+// dedup concatenates lists, making each path absolute and keeping only
+// its first occurrence.
+func dedup(lists ...[]string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, l := range lists {
+		for _, p := range l {
+			p = absPath(p)
+			if !seen[p] {
+				seen[p] = true
+				out = append(out, p)
+			}
+		}
+	}
+	return out
+}
+
+// without returns paths minus any in drop (compared as absolute paths).
+func without(paths, drop []string) []string {
+	skip := map[string]bool{}
+	for _, p := range drop {
+		skip[absPath(p)] = true
+	}
+	var out []string
+	for _, p := range paths {
+		if !skip[p] {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// writeListFile writes paths, one per line, to a new temp file outside
+// the host directory and returns its name. The caller removes it.
+func writeListFile(paths []string) (string, error) {
+	f, err := os.CreateTemp("", "extract-files-*")
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	for _, p := range paths {
+		b.WriteString(p)
+		b.WriteByte('\n')
+	}
+	_, werr := f.WriteString(b.String())
+	if cerr := f.Close(); werr == nil {
+		werr = cerr
+	}
+	if werr != nil {
+		os.Remove(f.Name())
+		return "", werr
+	}
+	return f.Name(), nil
 }

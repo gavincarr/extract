@@ -45,10 +45,12 @@ func ParseHost(s string) (Host, error) {
 		return Host{}, fmt.Errorf("invalid host %q: empty host name", s)
 	case strings.HasPrefix(h.Name, "-"):
 		return Host{}, fmt.Errorf("invalid host %q: name must not start with '-'", s)
+	case strings.HasPrefix(h.Name, "."):
+		// This also covers "." and "..", and keeps hosts clear of the
+		// .extract-state directory beside the host directories.
+		return Host{}, fmt.Errorf("invalid host %q: name must not start with '.'", s)
 	case strings.ContainsAny(h.Name, "/@:") || hasSpaceOrControl(h.Name):
 		return Host{}, fmt.Errorf("invalid host %q: name must not contain '/', '@', ':', whitespace or control characters", s)
-	case h.Name == "." || h.Name == "..":
-		return Host{}, fmt.Errorf("invalid host %q: bad host name", s)
 	}
 	return h, nil
 }

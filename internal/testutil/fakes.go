@@ -27,6 +27,12 @@ for a; do host="$a"; done
   for a; do printf '\037%s' "$a"; done
   printf '\n'
 } >> "$FAKE_RSYNC_CTL/calls"
+for a; do
+  case "$a" in
+    --files-from=:*) ;;
+    --files-from=*) f="${a#--files-from=}"; [ -f "$f" ] && cp "$f" "$FAKE_RSYNC_CTL/$host.list" ;;
+  esac
+done
 [ -f "$FAKE_RSYNC_CTL/$host.stderr" ] && cat "$FAKE_RSYNC_CTL/$host.stderr" >&2
 if [ -f "$FAKE_RSYNC_CTL/$host.sleep" ]; then sleep "$(cat "$FAKE_RSYNC_CTL/$host.sleep")"; fi
 if [ -f "$FAKE_RSYNC_CTL/$host.exit" ]; then exit "$(cat "$FAKE_RSYNC_CTL/$host.exit")"; fi
@@ -64,6 +70,17 @@ func (f *FakeRsync) SetHost(host string, exit int, stderr string, sleep time.Dur
 
 // Calls returns the recorded invocations in order.
 func (f *FakeRsync) Calls() []RsyncCall { return readCalls(filepath.Join(f.CtlDir, "calls")) }
+
+// List returns the lines of the local --files-from file given to the fake
+// for host on its last call, or nil if it was given none. The fake copies
+// the file when it runs, so this works after the caller has removed it.
+func (f *FakeRsync) List(host string) []string {
+	data, err := os.ReadFile(filepath.Join(f.CtlDir, host+".list"))
+	if err != nil || len(data) == 0 {
+		return nil
+	}
+	return strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+}
 
 func readCalls(path string) []RsyncCall {
 	data, err := os.ReadFile(path)

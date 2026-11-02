@@ -51,6 +51,32 @@ func TestRsyncArgsChosenFilesList(t *testing.T) {
 	}
 }
 
+func TestGlobsRsyncArgs(t *testing.T) {
+	base := []string{"rsync", "--archive", "--copy-links", "--delete", "--rsh=ssh -o BatchMode=yes"}
+	cases := []struct {
+		name string
+		host Host
+		noop bool
+		v    int
+		mid  []string
+	}{
+		{"quiet", Host{"", "h1"}, false, 0, []string{"--quiet"}},
+		{"user-noop-vvv", Host{"u", "h1"}, true, 3, []string{"--verbose", "--dry-run"}},
+		{"vv-still-quiet", Host{"u", "h1"}, false, 2, []string{"--quiet"}},
+		{"noop-quiet", Host{"", "h1"}, true, 1, []string{"--quiet", "--dry-run"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := GlobsRsyncArgs(c.host, "/tmp/l", c.noop, c.v)
+			want := append(append(append([]string{}, base...), c.mid...),
+				"--delete-missing-args", "--files-from=/tmp/l", c.host.Remote()+":/", "h1")
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("got  %q\nwant %q", got, want)
+			}
+		})
+	}
+}
+
 func TestProbeArgs(t *testing.T) {
 	got := ProbeArgs(Host{"u", "h1"}, []string{"/var/rpm.txt", "/var/deb list's", "~/x"})
 	want := []string{"ssh", "-o", "BatchMode=yes", "u@h1",

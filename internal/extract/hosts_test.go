@@ -3,6 +3,7 @@ package extract
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -26,9 +27,20 @@ func TestParseHost(t *testing.T) {
 		}
 	}
 	for _, in := range []string{"", "u@", "@h", "-h", "u@-h", "a/b", ".", "..", "u@h@x",
-		"-o@h", "-oProxyCommand=x@h", "u:x@h", "u/x@h", "u x@h", "h:1", "h 1", "h\t1", "h\x01"} {
+		"-o@h", "-oProxyCommand=x@h", "u:x@h", "u/x@h", "u x@h", "h:1", "h 1", "h\t1", "h\x01",
+		".extract-state", ".x", "u@.x"} {
 		if _, err := ParseHost(in); err == nil {
 			t.Errorf("ParseHost(%q): expected error", in)
+		}
+	}
+}
+
+func TestParseHostLeadingDot(t *testing.T) {
+	for _, in := range []string{".extract-state", ".x", "u@.x", ".", ".."} {
+		_, err := ParseHost(in)
+		want := fmt.Sprintf("invalid host %q: name must not start with '.'", in)
+		if err == nil || err.Error() != want {
+			t.Errorf("ParseHost(%q) error %v, want %q", in, err, want)
 		}
 	}
 }
