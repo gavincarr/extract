@@ -3,17 +3,13 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"os/signal"
+	"strings"
 	"syscall"
-	"time"
 
-	"github.com/gavincarr/extract/internal/config"
-	"github.com/gavincarr/extract/internal/extract"
 	"github.com/gavincarr/extract/internal/report"
 	"github.com/gavincarr/extract/internal/version"
 )
@@ -71,7 +67,8 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 		fmt.Fprintln(stderr, "extract:", err)
 		return 2
 	}
-	if _, err := parser.Parse(args); err != nil {
+	kctx, err := parser.Parse(args)
+	if err != nil {
 		parser.Stdout = stderr // usage goes to stderr on errors
 		parser.FatalIfErrorf(err)
 		return 2
@@ -88,41 +85,16 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 	ctx, stop := signalContext(signal.Ignored)
 	defer stop()
 
-	log := report.NewLogger(stdout, stderr, cli.Verbose)
-	fail := func(err error) int {
-		log.Error("extract: " + err.Error())
-		return 2
+	a := &app{
+		ctx:    ctx,
+		cli:    &cli,
+		log:    report.NewLogger(stdout, stderr, cli.Verbose),
+		stdout: stdout,
 	}
-
-	if cli.Timeout < 0 {
-		return fail(fmt.Errorf("invalid timeout %d: must be >= 0", cli.Timeout))
+	switch cmd := kctx.Command(); {
+	case cmd == "sync" || strings.HasPrefix(cmd, "sync "):
+		return a.sync(&cli.Sync)
+	default:
+		return a.fail(fmt.Errorf("unhandled command %q", cmd))
 	}
-	if _, err := exec.LookPath("rsync"); err != nil {
-		return fail(fmt.Errorf("rsync not found on PATH"))
-	}
-	cfg, err := config.Load(cli.Config)
-	if err != nil {
-		return fail(err)
-	}
-	hosts, err := extract.ResolveHosts(ctx, cli.Hosts, cfg)
-	if err != nil {
-		if errors.Is(err, context.Canceled) {
-			// Interrupted, not misconfigured: exit 1 like any interrupted run.
-			log.Error("extract: " + err.Error())
-			return 1
-		}
-		return fail(err)
-	}
-
-	r := extract.Run(cfg, hosts, extract.Options{
-		Ctx:       ctx,
-		Noop:      cli.Noop,
-		Verbosity: cli.Verbose,
-		Timeout:   time.Duration(cli.Timeout) * time.Second,
-	})
-	if cli.Noop {
-		report.PrintPlan(stdout, r)
-	}
-	report.Report(log, r)
-	return report.ExitCode(r)
 }

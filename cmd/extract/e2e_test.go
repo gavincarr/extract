@@ -294,3 +294,16 @@ func TestE2ESIGTERMDuringHostCmd(t *testing.T) {
 		t.Errorf("rsync calls = %d, want 0", n)
 	}
 }
+
+func TestE2EExplicitSyncSubcommand(t *testing.T) {
+	f := testutil.NewFakeRsync(t)
+	conf := writeConf(t, "EXTRACT_HOSTS=\"h1 h2\"\n")
+	code, out, errs := runCLI("sync", "-c", conf, "-v", "h2")
+	if code != 0 || out != "1 host ok\n" || errs != "" {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errs)
+	}
+	calls := f.Calls()
+	if len(calls) != 1 || calls[0].Argv[len(calls[0].Argv)-1] != "h2" {
+		t.Errorf("calls = %+v", calls)
+	}
+}

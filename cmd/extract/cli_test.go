@@ -12,20 +12,38 @@ import (
 
 func TestGrammar(t *testing.T) {
 	const def = "/etc/extract/extract.conf"
+	sync := func(s SyncCmd) SyncCmd {
+		if s.Timeout == 0 {
+			s.Timeout = 60
+		}
+		return s
+	}
 	cases := []struct {
 		args    []string
 		want    CLI
 		wantErr bool
 	}{
-		{nil, CLI{Config: def, Timeout: 60}, false},
-		{[]string{"-vvv"}, CLI{Config: def, Timeout: 60, Verbose: 3}, false},
-		{[]string{"-v", "-v"}, CLI{Config: def, Timeout: 60, Verbose: 2}, false},
-		{[]string{"--verbose", "--verbose"}, CLI{Config: def, Timeout: 60, Verbose: 2}, false},
+		// Bare and legacy (pre-subcommand) forms run sync by default.
+		{nil, CLI{Config: def, Sync: sync(SyncCmd{})}, false},
+		{[]string{"-vvv"}, CLI{Config: def, Verbose: 3, Sync: sync(SyncCmd{})}, false},
+		{[]string{"-v", "-v"}, CLI{Config: def, Verbose: 2, Sync: sync(SyncCmd{})}, false},
+		{[]string{"--verbose", "--verbose"}, CLI{Config: def, Verbose: 2, Sync: sync(SyncCmd{})}, false},
 		{[]string{"-c", "x.conf", "-t", "5", "-n", "h1", "u@h2"},
-			CLI{Config: "x.conf", Timeout: 5, Noop: true, Hosts: []string{"h1", "u@h2"}}, false},
-		{[]string{"-t5"}, CLI{Config: def, Timeout: 5}, false},
+			CLI{Config: "x.conf", Sync: SyncCmd{Timeout: 5, Noop: true, Hosts: []string{"h1", "u@h2"}}}, false},
+		{[]string{"-t5"}, CLI{Config: def, Sync: SyncCmd{Timeout: 5}}, false},
+		// Explicit sync, with global flags before or after it.
+		{[]string{"sync"}, CLI{Config: def, Sync: sync(SyncCmd{})}, false},
+		{[]string{"sync", "-vvv"}, CLI{Config: def, Verbose: 3, Sync: sync(SyncCmd{})}, false},
+		{[]string{"sync", "-n", "h1"}, CLI{Config: def, Sync: sync(SyncCmd{Noop: true, Hosts: []string{"h1"}})}, false},
+		{[]string{"-c", "x.conf", "sync", "h1"}, CLI{Config: "x.conf", Sync: sync(SyncCmd{Hosts: []string{"h1"}})}, false},
+		{[]string{"sync", "-c", "x.conf", "-t", "0", "h1"}, CLI{Config: "x.conf", Sync: SyncCmd{Hosts: []string{"h1"}}}, false},
+		// A word that isn't a subcommand is a host for the default sync.
+		{[]string{"check"}, CLI{Config: def, Sync: sync(SyncCmd{Hosts: []string{"check"}})}, false},
+		// A host named like a command needs the command spelled out.
+		{[]string{"sync", "sync"}, CLI{Config: def, Sync: sync(SyncCmd{Hosts: []string{"sync"}})}, false},
 		{[]string{"--bogus"}, CLI{}, true},
 		{[]string{"-t", "abc"}, CLI{}, true},
+		{[]string{"sync", "--bogus"}, CLI{}, true},
 	}
 	for _, c := range cases {
 		var cli CLI
@@ -33,13 +51,31 @@ func TestGrammar(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = p.Parse(c.args)
+		ctx, err := p.Parse(c.args)
 		if (err != nil) != c.wantErr {
 			t.Errorf("%v: err = %v, wantErr %v", c.args, err, c.wantErr)
 			continue
 		}
-		if !c.wantErr && !reflect.DeepEqual(cli, c.want) {
+		if c.wantErr {
+			continue
+		}
+		if !reflect.DeepEqual(cli, c.want) {
 			t.Errorf("%v: got %+v, want %+v", c.args, cli, c.want)
+		}
+		if cmd := ctx.Command(); !strings.HasPrefix(cmd, "sync") {
+			t.Errorf("%v: command = %q, want sync", c.args, cmd)
+		}
+	}
+}
+
+func TestSyncHelp(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := run([]string{"sync", "--help"}, &out, &errb); code != 0 {
+		t.Errorf("code = %d, want 0", code)
+	}
+	for _, s := range []string{"--timeout", "--noop", "--config"} {
+		if !strings.Contains(out.String(), s) {
+			t.Errorf("stdout missing %q: %q", s, out.String())
 		}
 	}
 }
@@ -65,8 +101,10 @@ func TestHelpExitsZero(t *testing.T) {
 	if code := run([]string{"--help"}, &out, &errb); code != 0 {
 		t.Errorf("code = %d, want 0", code)
 	}
-	if !strings.Contains(out.String(), "--config") {
-		t.Errorf("stdout missing --config: %q", out.String())
+	for _, s := range []string{"--config", "sync"} {
+		if !strings.Contains(out.String(), s) {
+			t.Errorf("stdout missing %q: %q", s, out.String())
+		}
 	}
 	if errb.Len() != 0 {
 		t.Errorf("stderr not empty: %q", errb.String())

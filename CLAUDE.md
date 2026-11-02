@@ -24,8 +24,15 @@ CGO_ENABLED=1 go test -race ./...                # -race needs cgo, which is off
 
 ## Architecture
 
-- `cmd/extract`: kong CLI (`cli.go`) and `run` in `main.go`, which wires
-  config, hosts, runner and reporter together and maps results to exit codes.
+- `cmd/extract`: kong CLI with subcommands. `cli.go` holds the grammar:
+  global flags (`-c`, `-v`, `--version`) on `CLI`, and `sync` (`SyncCmd`)
+  tagged `default:"withargs"` so plain `extract [flags] [host ...]` still
+  runs it (cron jobs and scripts call it bare; keep that working). `run` in
+  `main.go` parses, sets up the logger and the signal context, and
+  dispatches on `kctx.Command()` to a method on `app` (`app.go`: shared
+  state plus `loadConfig`); `sync.go` wires config, hosts, runner and
+  reporter and maps results to exit codes. A new subcommand is a struct
+  field with `cmd:""` on `CLI`, an `app` method, and a case in the switch.
   Every kong field has an explicit `name:` tag; `-v` is an `int` counter.
 - `internal/config`: loads the shell-style config with its own literal
   parser (`parse.go`: quotes stripped, no `$` expansion, like

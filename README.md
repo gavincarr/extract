@@ -47,16 +47,32 @@ absolute config path.
 Usage
 -----
 
-    extract [-v...] [-n] [-c <config_file>] [-t <timeout_secs>] [<host> ...]
+    extract [global flags] [sync] [-n] [-t <timeout_secs>] [<host> ...]
+
+`sync` copies files from the remote hosts. It is the default command, so
+plain `extract` (with or without flags and hosts) runs it, as earlier
+versions did: `extract -n h1` and `extract sync -n h1` are the same.
+Global flags work before or after the command.
+
+Global flags:
 
 | Flag | Meaning | Default |
 |---|---|---|
 | `-c`, `--config` | config file | `/etc/extract/extract.conf` |
-| `-t`, `--timeout` | per-host rsync timeout, in seconds (0 = none) | 60 |
-| `-n`, `--noop` | dry run | off |
 | `-v`, `--verbose` | verbosity, repeatable | 0 |
 | `--version` | print version and exit | |
-| `-h`, `--help` | usage | |
+| `-h`, `--help` | usage (`extract sync --help` for sync's flags) | |
+
+`sync` flags:
+
+| Flag | Meaning | Default |
+|---|---|---|
+| `-t`, `--timeout` | per-host rsync timeout, in seconds (0 = none) | 60 |
+| `-n`, `--noop` | dry run | off |
+
+A host argument that has the same name as a command is read as that
+command; name the command explicitly to sync such a host
+(`extract sync sync`).
 
 Hosts given on the command line override the hosts in the config file.
 A host may be `user@host`; the user is passed to rsync and the local
