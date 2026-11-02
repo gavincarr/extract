@@ -84,6 +84,11 @@ func readCalls(path string) []RsyncCall {
 // FakeSSH is a stand-in ssh binary placed first on PATH. By default it runs
 // the remote command locally with sh -c, as sshd would hand it to the login
 // shell, so a probe sees real local files. SetHost overrides that per host.
+//
+// The remote command runs with $CtlDir/bin first on PATH (see SetPasswd).
+// If FAKE_SSH_SHELL is set to a shell's path, a symlink named sh to it is
+// put before that, so both the login shell and any "sh" the command runs
+// are that shell, invoked as sh.
 type FakeSSH struct{ BinDir, CtlDir string }
 
 // SSHCall is one recorded invocation of the fake ssh.
@@ -111,6 +116,13 @@ if [ -f "$ctl.exit" ]; then
   [ -f "$ctl.stdout" ] && cat "$ctl.stdout"
   exit "$(cat "$ctl.exit")"
 fi
+PATH="$FAKE_SSH_CTL/bin:$PATH"
+if [ -n "$FAKE_SSH_SHELL" ]; then
+  d="$FAKE_SSH_CTL/shell-${FAKE_SSH_SHELL##*/}"
+  [ -e "$d/sh" ] || { mkdir -p "$d" && ln -sf "$FAKE_SSH_SHELL" "$d/sh"; }
+  PATH="$d:$PATH"
+fi
+export PATH
 exec sh -c "$*"
 `
 
@@ -145,6 +157,32 @@ func (f *FakeSSH) SetHost(host string, exit int, stdout, stderr string, sleep ti
 	}
 	if sleep > 0 {
 		write("sleep", fmt.Sprintf("%.3f", sleep.Seconds()))
+	}
+}
+
+// SetPasswd installs a fake getent in $CtlDir/bin, seen by the remote
+// command, that prints passwd for "getent passwd" and exits 2 otherwise.
+func (f *FakeSSH) SetPasswd(t *testing.T, passwd string) {
+	t.Helper()
+	WriteFile(t, f.CtlDir, "passwd", passwd)
+	f.writeGetent(t, "[ \"$1\" = passwd ] || exit 2\ncat \"$FAKE_SSH_CTL/passwd\"\n")
+}
+
+// SetPasswdFails installs a fake getent that always exits 2, so the remote
+// command falls back to /etc/passwd.
+func (f *FakeSSH) SetPasswdFails(t *testing.T) {
+	t.Helper()
+	f.writeGetent(t, "exit 2\n")
+}
+
+func (f *FakeSSH) writeGetent(t *testing.T, body string) {
+	t.Helper()
+	bin := filepath.Join(f.CtlDir, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "getent"), []byte("#!/bin/sh\n"+body), 0o755); err != nil {
+		t.Fatal(err)
 	}
 }
 
