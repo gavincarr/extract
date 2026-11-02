@@ -7,3 +7,4 @@ Build
 Build.bat
 MANIFEST.bak
 etc/extract.conf
+/extract
