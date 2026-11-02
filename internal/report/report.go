@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -75,6 +76,15 @@ func Report(log *slog.Logger, r *extract.Result) {
 		say(slog.LevelError, "%s: %s", h.Host, h.Error)
 		if h.Rsync != nil && h.Rsync.Failed() && h.Rsync.ExitCode != 24 {
 			out(slog.LevelError, h.Rsync.Stderr)
+			// The rsync failure is the root cause, but a hook that also
+			// failed on this host must not go unreported.
+			for _, p := range append(append([]extract.HookResult{}, h.PreHooks...), h.PostHooks...) {
+				if p.Failed() {
+					say(slog.LevelError, "  then %s hook %s %s", p.Stage, filepath.Base(p.Path), stepProblem(p.Step, p.Timeout))
+					out(slog.LevelError, indentText(p.Step.Stdout))
+					out(slog.LevelError, indentText(p.Step.Stderr))
+				}
+			}
 			continue
 		}
 		for _, p := range append(append([]extract.HookResult{}, h.PreHooks...), h.PostHooks...) {
@@ -125,6 +135,12 @@ func stepProblem(s *proc.StepResult, timeout time.Duration) string {
 		return fmt.Sprintf("timed out after %s", timeout)
 	}
 	return fmt.Sprintf("exited %d", s.ExitCode)
+}
+
+// indentText prefixes each line of s with two spaces, so that a further
+// pass through indent yields four.
+func indentText(s string) string {
+	return strings.Join(indent(s), "\n")
 }
 
 // indent splits captured output into lines prefixed by two spaces.

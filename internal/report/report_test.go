@@ -185,3 +185,19 @@ func TestExitCode(t *testing.T) {
 		}
 	}
 }
+
+func TestReportPostHookFailureAfterRsyncFailure(t *testing.T) {
+	r := &extract.Result{Hosts: []extract.HostResult{{
+		Host: host("h1"), Status: extract.StatusFailed, Error: "rsync exited 23",
+		Rsync: &proc.StepResult{ExitCode: 23, Stderr: "link_stat x\n"},
+		PostHooks: []extract.HookResult{{Stage: "post_extract_host", Path: "/s/git",
+			Step: &proc.StepResult{ExitCode: 1, Stdout: "fatal: bad object\n"}}},
+	}}}
+	o, e := run(r, 0)
+	if o != "" {
+		t.Errorf("stdout: %q", o)
+	}
+	contains(t, "stderr", e, "h1: rsync exited 23", "link_stat x",
+		"then post_extract_host hook git exited 1", "fatal: bad object")
+	contains(t, "stderr", e, "h1: rsync exited 23\n  link_stat x\n  then post_extract_host hook git exited 1\n    fatal: bad object\n")
+}
